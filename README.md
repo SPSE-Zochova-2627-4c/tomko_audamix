@@ -60,6 +60,22 @@ Používateľské rozhranie bude vytvorené pomocou **Qt 6** a knižnice **PySid
 
 Aplikácia bude poskytovať jednoduché grafické rozhranie na načítanie zvukových súborov, zobrazenie ich informácií a aplikáciu jednotlivých efektov a filtrov.
 
+## AI backendy
+
+AI spracovanie používa lokálne predtrénované modely a zvuk sa pri spracovaní
+neodosiela na server:
+
+- AI denoise: DeepFilterNet3 (`deepfilternet`), určený najmä na potlačenie
+  šumu v reči. Model sa stiahne do lokálnej cache pri prvom použití.
+- AI declipping: voliteľný VoiceFixer (`voicefixer`) pre reč. Keď jeho váhy
+  nie sú nainštalované, aplikácia operáciu odmietne a nepoužije falošný
+  interpolovaný „AI“ výsledok.
+
+Mapovanie voči efektom Audacity je: Noise Reduction/Noise Gate → denoise,
+Low/High-Pass a EQ → klasické DSP filtre, Compressor/Limiter → dynamické
+spracovanie a Clip Fix → declipping. DeepFilterNet je speech enhancement
+model, preto jeho výsledok pri hudbe alebo inom materiáli nemusí byť vhodný.
+
 ## 📁 Projekt
 
 Štruktúra projektu bude priebežne dopĺňaná počas vývoja.
@@ -68,4 +84,3 @@ Aplikácia bude poskytovať jednoduché grafické rozhranie na načítanie zvuko
 Audamix/
 ├── ...
 └── README.md
-

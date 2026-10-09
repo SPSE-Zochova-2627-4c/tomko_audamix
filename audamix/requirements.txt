@@ -1,0 +1,14 @@
+# Core dependencies
+PySide6>=6.5.0
+soundfile>=0.12.1
+numpy>=1.24.0
+scipy>=1.10.0
+
+# AI/ML dependencies
+torch>=2.0.0
+torchaudio>=2.0.0
+# Pretrained local speech denoiser (downloads DeepFilterNet weights on first use)
+deepfilternet>=0.5.6
+# Optional pretrained speech restoration/declipping backend. It is intentionally
+# not required because its legacy dependency stack and weights are substantial.
+# voicefixer>=0.1.3
