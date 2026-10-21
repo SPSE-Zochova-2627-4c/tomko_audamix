@@ -8,7 +8,7 @@ Design Rationale:
 - Separates I/O concerns from processing logic
 - Maintains original data alongside processed data for non-destructive editing
 - Provides consistent interface for all audio operations
-- DEFAULT: Normalize audio to [-1, 1] to preserve headroom
+    - Preserve the source level unless normalization is requested
 """
 
 import numpy as np
@@ -40,13 +40,13 @@ class AudioData:
         self.current_operation: Optional[str] = None
     
     @classmethod
-    def load(cls, filepath: str, normalize: bool = True) -> 'AudioData':
+    def load(cls, filepath: str, normalize: bool = False) -> 'AudioData':
         """
         Load audio from file and return AudioData instance.
         
         Args:
             filepath: Path to audio file
-            normalize: If True, normalize samples to [-1, 1] range (DEFAULT)
+            normalize: If True, normalize peak amplitude to 1.0
             
         Returns:
             Loaded AudioData instance
@@ -55,8 +55,7 @@ class AudioData:
             ValueError: If file is invalid or unsupported
             
         Note:
-            Normalization is now DEFAULT to preserve headroom for DSP operations.
-            Each DSP operation handles its own normalization and clipping protection.
+            The default preserves source amplitude for predictable gain changes.
         """
         audio = cls()
         
@@ -87,10 +86,8 @@ class AudioData:
             # Get bit depth if available
             audio.metadata['dtype'] = str(audio.samples.dtype)
             
-            # Normalize to [-1, 1] by DEFAULT to preserve headroom
-            # This prevents clipping issues in subsequent DSP operations
-            # Each DSP layer handles its own normalization and clipping protection
-            if normalize:
+            # Normalize only when the caller explicitly requests it.
+            if normalize and audio.samples.size:
                 max_val = np.max(np.abs(audio.samples))
                 if max_val > 0:
                     audio.samples = audio.samples / max_val
@@ -116,8 +113,8 @@ class AudioData:
         channels = self.metadata.get('channels', 1)
         
         # Create SoundFile for writing
-        with SoundFile(filepath, 'w', samplerate=sr, channels=channels, 
-                      format=format or self.metadata.get('format', None)) as sf:
+        with SoundFile(filepath, 'w', samplerate=sr, channels=channels,
+                      format=format) as sf:
             sf.write(self.samples)
         
         # Update filename metadata
@@ -126,6 +123,19 @@ class AudioData:
     def get_sample_count(self) -> int:
         """Return number of samples."""
         return len(self.samples) if self.samples is not None else 0
+
+    def get_peak(self) -> float:
+        """Return the largest absolute sample amplitude."""
+        return float(np.max(np.abs(self.samples))) if self.samples is not None and self.samples.size else 0.0
+
+    def get_rms(self) -> float:
+        """Return root mean square amplitude over all channels."""
+        return float(np.sqrt(np.mean(np.square(self.samples)))) if self.samples is not None and self.samples.size else 0.0
+
+    def get_dr(self) -> float:
+        """Return peak to RMS ratio in decibels."""
+        rms = self.get_rms()
+        return float(20 * np.log10(self.get_peak() / rms)) if rms else 0.0
     
     def get_duration(self) -> float:
         """Return duration in seconds."""
@@ -176,7 +186,7 @@ class AudioData:
         return self
 
 
-def load_audio(filepath: str, normalize: bool = True) -> AudioData:
+def load_audio(filepath: str, normalize: bool = False) -> AudioData:
     """Convenience function to load audio from file."""
     return AudioData.load(filepath, normalize=normalize)
 

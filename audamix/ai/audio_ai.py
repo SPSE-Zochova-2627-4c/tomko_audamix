@@ -153,7 +153,7 @@ class AudioAI:
         result.original_samples = np.asarray(audio.samples).copy()
         return result, "Denoising completed with pretrained DeepFilterNet3"
 
-    def declipe(self, audio: AudioData, confidence: float = 0.7) -> Tuple[AudioData, str]:
+    def declip(self, audio: AudioData, confidence: float = 0.7) -> Tuple[AudioData, str]:
         """Restore clipped speech with optional pretrained VoiceFixer.
 
         VoiceFixer is speech-only and expects 44.1 kHz. No interpolation or
@@ -187,7 +187,7 @@ class AudioAI:
     def is_model_available(self, model_type: str) -> bool:
         if model_type == "denoise":
             return self._df_model is not None
-        if model_type == "declipe":
+        if model_type == "declip":
             return self._voicefixer is not None
         return False
 
@@ -204,5 +204,5 @@ def denoise(audio: AudioData, threshold: float = 0.01) -> Tuple[AudioData, str]:
     return AudioAI().denoise(audio, threshold)
 
 
-def declipe(audio: AudioData, confidence: float = 0.7) -> Tuple[AudioData, str]:
-    return AudioAI().declipe(audio, confidence)
+def declip(audio: AudioData, confidence: float = 0.7) -> Tuple[AudioData, str]:
+    return AudioAI().declip(audio, confidence)

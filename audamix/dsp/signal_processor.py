@@ -1,286 +1,124 @@
-"""
-Digital Signal Processing Layer - Classical audio operations.
+"""Classical, non-destructive audio processing."""
 
-Implements traditional DSP methods:
-- Volume/Amplitude control
-- Frequency filters (LPF, HPF, bandpass, peaking)
-- Classical noise reduction (spectral subtraction approach)
-
-Design Rationale:
-- Uses NumPy for efficient array operations
-- Leverages SciPy's well-tested signal processing functions
-- Non-destructive: preserves original audio
-- Each DSP operation normalizes and protects against clipping
-"""
+from typing import Optional
+import warnings
 
 import numpy as np
-from scipy import signal as sp_signal
-from typing import List, Optional, Tuple
-import warnings
+from scipy import signal
 
 from ..data.audio_data import AudioData
 
 
 class SignalProcessor:
-    """
-    Classical DSP operations for audio processing.
-    
-    Supports volume adjustment, filtering, and basic noise reduction
-    using traditional signal processing techniques.
-    Each operation normalizes and handles clipping protection.
-    """
-    
+    """Apply DSP operations without changing the input :class:`AudioData`."""
+
     def __init__(self, audio: AudioData) -> None:
-        """
-        Initialize processor with loaded audio data.
-        
-        Args:
-            audio: AudioData instance containing samples and metadata
-        """
+        if audio.samples is None:
+            raise ValueError("No audio loaded")
         self.audio = audio
-        self._samples = audio.samples
-        self._sample_rate = audio.metadata.get('sample_rate', 44100)
-        self._num_samples = len(self._samples)
-        
-        # Filter design parameters
-        self._num_taps: int = 101  # Odd number for symmetric filters
-        self._transition_width: float = 0.05  # Normalized frequency (fraction of Nyquist)
-    
-    def _normalize_samples(self) -> None:
-        """
-        Normalize samples to [-1, 1] range before processing.
-        
-        This is the DEFAULT behavior for headroom preservation.
-        Each DSP operation handles its own normalization and clipping protection.
-        """
-        max_val = np.max(np.abs(self._samples))
-        if max_val > 0:
-            self._samples = self._samples / max_val
-    
+        self._samples = np.asarray(audio.samples, dtype=np.float64)
+        self._sample_rate = int(audio.metadata.get("sample_rate", 44100))
+
+    def _result(self, samples: np.ndarray) -> AudioData:
+        if samples.shape != self._samples.shape or not np.all(np.isfinite(samples)):
+            raise ValueError("Processing produced invalid audio samples")
+        peak = float(np.max(np.abs(samples))) if samples.size else 0.0
+        if peak > 1.0:
+            warnings.warn("Output peak exceeded 1.0; reducing gain to avoid clipping")
+            samples = samples / peak
+        result = AudioData()
+        result.samples = np.asarray(samples, dtype=np.float64).copy()
+        result.metadata = self.audio.metadata.copy()
+        result.original_samples = self.audio.original_samples
+        return result
+
     def adjust_volume(self, factor: float) -> AudioData:
-        """
-        Adjust audio amplitude by given factor.
-        
-        Args:
-            factor: Multiplicative factor (> 0). Use 1.0 for no change.
-            
-        Returns:
-            New AudioData instance with adjusted samples
-            
-        Raises:
-            ValueError: If factor is <= 0 or would cause extreme clipping
-            
-        Note:
-            - Normalizes to [-1, 1] before applying factor (preserves headroom)
-            - If result would clip, normalizes to prevent clipping
-        """
-        if factor <= 0:
-            raise ValueError("Volume factor must be positive")
-        
-        # Normalize to [-1, 1] FIRST to preserve headroom
-        self._normalize_samples()
-        
-        # Calculate new samples
-        new_samples = self._samples * factor
-        
-        # Check for clipping
-        max_val = np.max(np.abs(new_samples))
-        if max_val > 1.0:
-            # Normalize to prevent clipping
-            new_samples = new_samples / max_val
-            warnings.warn(
-                f"Clipping prevented: normalized from {max_val:.3f} to 1.0. "
-                "Consider using lower volume factor or applying gain before volume increase."
-            )
-        
-        self._samples = new_samples
-        return self.audio
-    
+        if not np.isfinite(factor) or factor <= 0:
+            raise ValueError("Volume factor must be finite and positive")
+        return self._result(self._samples * factor)
+
     def apply_filter(
-        self,
-        filter_type: str,
-        cutoff_freq: float,
-        q_factor: float = 1.0,
-        order: int = 2
+        self, filter_type: str, cutoff_freq: float, q_factor: float = 1.0,
+        order: int = 2,
     ) -> AudioData:
-        """
-        Apply a frequency filter to the audio.
-        
-        Args:
-            filter_type: Type of filter - 'lowpass', 'highpass', 'bandpass', 'peaking'
-            cutoff_freq: Cutoff frequency in Hz (for band/peak) or stop frequency (for lowpass)
-            q_factor: Q-factor for resonance (1.0 = no resonance)
-            order: Filter order (2, 4, etc.)
-            
-        Returns:
-            New AudioData instance with filtered audio
-            
-        Raises:
-            ValueError: If filter type is unknown or parameters are invalid
-            
-        Note:
-            Each filter operation normalizes and handles clipping protection.
-        """
-        # Normalize before filtering to preserve headroom
-        self._normalize_samples()
-        
-        # Validate inputs
-        valid_types = ['lowpass', 'highpass', 'bandpass', 'peaking']
-        if filter_type not in valid_types:
-            raise ValueError(f"Unknown filter type: {filter_type}. Valid: {valid_types}")
-        
-        if cutoff_freq <= 0:
-            raise ValueError("Cutoff frequency must be positive")
-        
-        if cutoff_freq >= self._sample_rate / 2:
-            warnings.warn(
-                f"Cutoff frequency ({cutoff_freq} Hz) exceeds Nyquist "
-                f"(Nyquist = {self._sample_rate / 2:.1f} Hz)"
-            )
-        
-        # Design filter based on type
+        if filter_type not in {"lowpass", "highpass", "bandpass", "peaking"}:
+            raise ValueError(f"Unknown filter type: {filter_type}")
         nyquist = self._sample_rate / 2
-        normalized_cutoff = cutoff_freq / nyquist
-        
-        if filter_type == 'lowpass':
-            cutoff_norm = 1.0 - normalized_cutoff  # Invert for lowpass design
-            b, a = sp_signal.butter(order, cutoff_norm, btype='low', fs=self._sample_rate)
-            new_samples = sp_signal.filtfilt(b, a, self._samples)
-            self._samples = new_samples
-            
-        elif filter_type == 'highpass':
-            b, a = sp_signal.butter(order, normalized_cutoff, btype='high', fs=self._sample_rate)
-            new_samples = sp_signal.filtfilt(b, a, self._samples)
-            self._samples = new_samples
-            
-        elif filter_type == 'bandpass':
-            b, a = sp_signal.butter(order, [normalized_cutoff, cutoff_freq], btype='band', fs=self._sample_rate)
-            new_samples = sp_signal.filtfilt(b, a, self._samples)
-            self._samples = new_samples
-            
-        elif filter_type == 'peaking':
-            # Peaking filter (parametric EQ)
-            b, a = sp_signal.iirfilter(
-                order,
-                normalized_cutoff,
-                ftype='peaking',
-                btype='low',  # Use lowpass design for peaking
-                fs=self._sample_rate,
-                halfpower='q'
-            )
-            # Calculate gain from Q-factor
-            gain_db = 20 * np.log10(1 + q_factor * np.tan(np.pi * normalized_cutoff))
-            # Apply gain
-            if gain_db > 0:
-                new_samples = self._samples * np.abs(gain_db) / 20.0
-            elif gain_db < 0:
-                new_samples = self._samples / (np.abs(gain_db) / 20.0)
-            else:
-                new_samples = self._samples.copy()
-            self._samples = new_samples
-        
-        return self.audio
-    
-    def classical_denoise(
-        self,
-        noise_estimate: Optional[np.ndarray] = None,
-        iterations: int = 3
-    ) -> AudioData:
-        """
-        Classical noise reduction using spectral subtraction.
-        
-        This implements a simplified Wiener filter approach:
-        S_estimated = S_observed - noise_estimate
-        
-        Args:
-            noise_estimate: Estimated noise spectrum (optional)
-            iterations: Number of spectral subtraction iterations
-            
-        Returns:
-            New AudioData with reduced noise
-            
-        Notes:
-            - Each operation normalizes and handles clipping protection
-            - This is a basic implementation. Production systems would use
-              more sophisticated methods like spectral gating or learned
-              noise models.
-        """
-        # Normalize before processing
-        self._normalize_samples()
-        
-        if noise_estimate is None:
-            # If no noise estimate, apply basic smoothing
-            # This won't be effective without a noise sample
-            warnings.warn(
-                "No noise estimate provided. Results will be limited. "
-                "For best results, capture a noise-only sample."
-            )
-            # Apply basic median filtering as a crude denoiser
-            kernel_size = 7
-            new_samples = sp_signal.medfilt(self._samples, kernel_size)
-            self._samples = new_samples
-            return self.audio
-        
-        # Spectral subtraction approach
-        # Convert to frequency domain
-        n_fft = min(2048, self._num_samples // 2)
-        spectrogram = np.abs(np.fft.rfft(self._samples, n_fft))
-        
-        # Simple spectral subtraction
-        if noise_estimate is not None and noise_estimate.shape == spectrogram.shape:
-            # Subtract noise estimate (with soft clipping to prevent over-subtraction)
-            subtraction = noise_estimate * 0.5  # Subtraction factor
-            spectrogram = np.maximum(spectrogram - subtraction, 0.1 * spectrogram)
+        if not np.isfinite(cutoff_freq) or not 0 < cutoff_freq < nyquist:
+            raise ValueError(f"Cutoff frequency must be between 0 and {nyquist:g} Hz")
+        if not np.isfinite(q_factor) or q_factor <= 0:
+            raise ValueError("Q factor must be finite and positive")
+        if not isinstance(order, int) or order < 1:
+            raise ValueError("Filter order must be a positive integer")
+
+        if filter_type == "bandpass":
+            bandwidth = cutoff_freq / q_factor
+            low, high = cutoff_freq - bandwidth / 2, cutoff_freq + bandwidth / 2
+            if low <= 0 or high >= nyquist:
+                raise ValueError("Bandpass range must fit between 0 Hz and Nyquist")
+            sos = signal.butter(order, (low, high), btype="bandpass", fs=self._sample_rate, output="sos")
+        elif filter_type == "peaking":
+            b, a = signal.iirpeak(cutoff_freq, q_factor, fs=self._sample_rate)
+            sos = signal.tf2sos(b, a)
         else:
-            # Apply frequency-dependent attenuation
-            frequencies = np.fft.rfftfreq(n_fft, 1/self._sample_rate)
-            # More aggressive attenuation at lower frequencies where noise often lives
-            freq_weight = 1.0 / (1.0 + np.exp(-(frequencies - 500) / 100))
-            spectrogram = spectrogram * freq_weight
-        
-        # Reconstruct time-domain signal
-        new_samples = np.fft.irfft(spectrogram, n_fft).real
-        self._samples = new_samples[:self._num_samples]
-        
-        return self.audio
-    
+            kind = "lowpass" if filter_type == "lowpass" else "highpass"
+            sos = signal.butter(order, cutoff_freq, btype=kind, fs=self._sample_rate, output="sos")
+
+        if not self._samples.size:
+            return self._result(self._samples)
+        filtered = signal.sosfilt(sos, self._samples, axis=0)
+        return self._result(filtered)
+
+    def classical_denoise(
+        self, noise_estimate: Optional[np.ndarray] = None, iterations: int = 3,
+    ) -> AudioData:
+        if not isinstance(iterations, int) or iterations < 1:
+            raise ValueError("Iterations must be a positive integer")
+        if not self._samples.size:
+            return self._result(self._samples)
+        if noise_estimate is None:
+            warnings.warn("No noise estimate provided; using a basic median filter")
+            kernel = (7, 1) if self._samples.ndim == 2 else 7
+            result = self._samples.copy()
+            for _ in range(iterations):
+                result = signal.medfilt(result, kernel_size=kernel)
+            return self._result(result)
+
+        noise = np.asarray(noise_estimate, dtype=np.float64)
+        if noise.shape != self._samples.shape or not np.all(np.isfinite(noise)):
+            raise ValueError("Noise estimate must match the audio shape and be finite")
+        channels = self._samples[:, None] if self._samples.ndim == 1 else self._samples
+        noise_channels = noise[:, None] if noise.ndim == 1 else noise
+        outputs = []
+        for channel, noise_channel in zip(channels.T, noise_channels.T):
+            nperseg = min(1024, len(channel))
+            _, _, spectrum = signal.stft(channel, fs=self._sample_rate, nperseg=nperseg)
+            _, _, noise_spectrum = signal.stft(noise_channel, fs=self._sample_rate, nperseg=nperseg)
+            floor = np.median(np.abs(noise_spectrum), axis=1, keepdims=True)
+            magnitude = np.abs(spectrum)
+            gain = np.maximum(0.05, 1 - floor / np.maximum(magnitude, 1e-12)) ** iterations
+            _, restored = signal.istft(spectrum * gain, fs=self._sample_rate, nperseg=nperseg)
+            outputs.append(restored[:len(channel)])
+        result = np.stack(outputs, axis=1)
+        return self._result(result[:, 0] if self._samples.ndim == 1 else result)
+
     def get_processing_info(self) -> dict:
-        """
-        Get current processing state.
-        
-        Returns:
-            Dict describing current audio state
-        """
         return {
-            'sample_rate': self._sample_rate,
-            'num_samples': self._num_samples,
-            'channels': self.audio.metadata.get('channels', 1),
-            'dtype': str(self._samples.dtype),
-            'rms': float(np.sqrt(np.mean(self._samples ** 2)))
+            "sample_rate": self._sample_rate,
+            "num_samples": len(self._samples),
+            "channels": self.audio.metadata.get("channels", 1),
+            "dtype": str(self._samples.dtype),
+            "rms": float(np.sqrt(np.mean(self._samples ** 2))) if self._samples.size else 0.0,
         }
 
 
 def apply_volume(audio: AudioData, factor: float) -> AudioData:
-    """Convenience function to adjust volume."""
-    processor = SignalProcessor(audio)
-    return processor.adjust_volume(factor)
+    return SignalProcessor(audio).adjust_volume(factor)
 
 
-def apply_filter(
-    audio: AudioData,
-    filter_type: str,
-    cutoff_freq: float,
-    q_factor: float = 1.0
-) -> AudioData:
-    """Convenience function to apply frequency filter."""
-    processor = SignalProcessor(audio)
-    return processor.apply_filter(filter_type, cutoff_freq, q_factor)
+def apply_filter(audio: AudioData, filter_type: str, cutoff_freq: float, q_factor: float = 1.0) -> AudioData:
+    return SignalProcessor(audio).apply_filter(filter_type, cutoff_freq, q_factor)
 
 
-def classical_denoise(
-    audio: AudioData,
-    noise_estimate: Optional[np.ndarray] = None
-) -> AudioData:
-    """Convenience function for classical noise reduction."""
-    processor = SignalProcessor(audio)
-    return processor.classical_denoise(noise_estimate)
+def classical_denoise(audio: AudioData, noise_estimate: Optional[np.ndarray] = None) -> AudioData:
+    return SignalProcessor(audio).classical_denoise(noise_estimate)

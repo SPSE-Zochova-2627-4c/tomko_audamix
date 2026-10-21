@@ -1,272 +1,110 @@
-#!/usr/bin/env python3
-"""
-Audamix - Audio Editor for Desktop Linux
-
-A cross-platform audio editor focused on:
-- Non-destructive editing
-- Classical and AI-based processing
-- Clean, responsive UI
-
-Usage:
-    python main.py <command> [options]
-    
-Commands:
-    edit <filepath>           Open audio file in editor
-    info <filepath>           Show file metadata
-    process <filepath>        Apply processing pipeline
-    batch <input_dir> <output_dir>    Process directory of files
-    generate-silence         Create silence file
-    demo                      Run demonstration mode
-    
-Examples:
-    python main.py edit audio.wav
-    python main.py process audio.wav --denoise --filter lowpass 2000
-    python main.py info audio.wav
-    python main.py batch ./input ./output --denoise
-"""
-
-import sys
-import os
-import numpy as np
-
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+"""Command-line workflows for Audamix. Run with ``python -m audamix.main``."""
 
 import argparse
-import tempfile
-import traceback
+import os
+import sys
 
-from audamix.processor import AudioProcessor, create_processor
+import numpy as np
+
+from audamix.ai.audio_ai import AudioAI
 from audamix.data.audio_data import AudioData
 from audamix.dsp.signal_processor import SignalProcessor
-from audamix.ai.audio_ai import AudioAI
-
-
-def command_edit(filepath: str, normalize: bool = False) -> None:
-    """Open audio file for editing."""
-    try:
-        print(f"Loading: {filepath}")
-        audio = AudioData.load(filepath, normalize=normalize)
-        
-        print(f"Loaded successfully!")
-        print(f"  Sample rate: {audio.metadata.get('sample_rate', 'N/A')} Hz")
-        print(f"  Channels: {audio.metadata.get('channels', 'N/A')}")
-        print(f"  Duration: {audio.metadata.get('duration', 'N/A')} s")
-        
-        processor = create_processor(audio)
-        
-        # Show audio info
-        print(f"\nAudio Properties:")
-        print(f"  Peak: {audio.get_peak():.4f}")
-        print(f"  RMS: {audio.get_rms():.4f}")
-        print(f"  DR: {audio.get_dr():.1f} dB")
-        print(f"  Headroom: {(1 - audio.get_peak()) * 100:.1f} dB")
-        
-    except Exception:
-        print("Error loading file.")
-        traceback.print_exc()
 
 
 def command_info(filepath: str) -> None:
-    """Show file metadata."""
-    try:
-        audio = AudioData.load(filepath)
-        
-        print(f"Metadata:")
-        print(f"  Sample rate: {audio.metadata.get('sample_rate', 'N/A')} Hz")
-        print(f"  Channels: {audio.metadata.get('channels', 'N/A')}")
-        print(f"  Duration: {audio.metadata.get('duration', 'N/A')} s")
-        print(f"  Bit depth: {audio.metadata.get('bits_per_sample', 'N/A')} bits")
-        print(f"  Format: {audio.metadata.get('format', 'N/A')}")
-        
-    except Exception:
-        print("Error reading file.")
-        traceback.print_exc()
+    audio = AudioData.load(filepath)
+    info = audio.get_info()
+    for key in ("filename", "duration", "sample_rate", "channels", "sample_count", "bits_per_sample", "format"):
+        print(f"{key}: {info.get(key, 'N/A')}")
+    print(f"peak: {audio.get_peak():.4f}")
+    print(f"RMS: {audio.get_rms():.4f}")
+    print(f"peak/RMS: {audio.get_dr():.1f} dB")
 
 
-def command_process(filepath: str, denoise: bool = False, filter: str = None, 
-                    volume: float = 1.0, output: str = None) -> None:
-    """Apply processing pipeline."""
-    try:
-        audio = AudioData.load(filepath)
-        processor = create_processor(audio)
-        
-        print(f"Processing: {filepath}")
-        
-        # Denoise
-        if denoise:
-            print("Applying AI denoising...")
-            audio, status = AudioAI().denoise(audio, threshold=0.01)
-            print(f"  Status: {status}")
-        
-        # Filter
-        if filter:
-            print(f"Applying filter: {filter}")
-            processor = SignalProcessor(audio)
-            audio = processor.apply_filter(filter, cutoff_freq=2000)
-        
-        # Volume
-        if volume != 1.0:
-            print(f"Adjusting volume to {volume}x")
-            processor = SignalProcessor(audio)
-            audio = processor.adjust_volume(volume)
-        
-        # Save
-        if output:
-            audio.save(output)
-            print(f"Saved to: {output}")
-        else:
-            print("No output file specified.")
-            
-    except Exception:
-        print("Error processing file.")
-        traceback.print_exc()
-
-
-def command_batch(input_dir: str, output_dir: str, denoise: bool = False,
-                  filter: str = None, volume: float = 1.0) -> None:
-    """Batch process directory of files."""
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-        
-        for filename in os.listdir(input_dir):
-            if filename.endswith(('.wav', '.flac', '.mp3')):
-                filepath = os.path.join(input_dir, filename)
-                output_path = os.path.join(output_dir, filename)
-                command_process(filepath, denoise, filter, volume, output_path)
-        
-        print(f"Batch processing complete.")
-            
-    except Exception:
-        print("Error in batch processing.")
-        traceback.print_exc()
-
-
-def command_generate_silence(output: str, duration: int = 10, 
-                              sample_rate: int = 44100) -> None:
-    """Generate silence file."""
-    try:
-        # Create silence samples
-        n_samples = sample_rate * duration
-        samples = np.zeros(n_samples, dtype=np.float32)
-        metadata = {'sample_rate': sample_rate, 'channels': 2, 'duration': duration}
-        
-        audio = AudioData(samples, metadata)
+def command_process(filepath: str, output: str | None = None, *, denoise: bool = False,
+                    filter_type: str | None = None, cutoff: float = 2000,
+                    volume: float = 1.0, declip: bool = False) -> None:
+    if output and os.path.abspath(filepath) == os.path.abspath(output):
+        raise ValueError("Output must differ from the input file")
+    audio = AudioData.load(filepath)
+    if denoise:
+        audio, status = AudioAI().denoise(audio)
+        print(status)
+    if declip:
+        audio, status = AudioAI().declip(audio)
+        print(status)
+    if filter_type:
+        audio = SignalProcessor(audio).apply_filter(filter_type, cutoff)
+    if volume != 1.0:
+        audio = SignalProcessor(audio).adjust_volume(volume)
+    if output:
         audio.save(output)
-        
-        print(f"Generated: {output}")
-        print(f"  Duration: {duration} s")
-        print(f"  Sample rate: {sample_rate} Hz")
-            
-    except Exception:
-        print("Error generating silence file.")
-        traceback.print_exc()
+        print(f"Saved to: {output}")
+    else:
+        print("No output file specified; result was not saved.")
 
 
-def command_demo() -> None:
-    """Run demonstration mode."""
-    print("\n" + "=" * 50)
-    print("AUDAMIX DEMO MODE")
-    print("=" * 50)
-    
-    print("\n1. Loading sample audio...")
-    audio = AudioData.load("demo_audio.wav")
-    
-    print("\n2. Audio properties:")
-    print(f"   Peak: {audio.get_peak():.4f}")
-    print(f"   RMS: {audio.get_rms():.4f}")
-    print(f"   Headroom: {(1 - audio.get_peak()) * 100:.1f} dB")
-    
-    print("\n3. Applying denoising...")
-    audio, status = AudioAI.denoise(audio)
-    print(f"   Status: {status}")
-    
-    print("\n4. Applying volume increase...")
-    processor = SignalProcessor(audio)
-    audio = processor.adjust_volume(1.5)
-    print(f"   Volume increased to 1.5x")
-    
-    print("\n5. Saving processed audio...")
-    audio.save("demo_output.wav")
-    print("   Saved: demo_output.wav")
-    
-    print("\n" + "=" * 50)
-    print("Demo complete!")
-    print("=" * 50 + "\n")
+def command_batch(input_dir: str, output_dir: str, **options) -> None:
+    if os.path.abspath(input_dir) == os.path.abspath(output_dir):
+        raise ValueError("Input and output directories must differ")
+    os.makedirs(output_dir, exist_ok=True)
+    count = 0
+    for filename in sorted(os.listdir(input_dir)):
+        if filename.lower().endswith((".wav", ".flac", ".mp3")):
+            command_process(os.path.join(input_dir, filename),
+                            os.path.join(output_dir, filename), **options)
+            count += 1
+    print(f"Processed {count} file(s).")
 
 
-def main():
-    """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description="Audamix - Audio Editor for Desktop Linux"
-    )
-    
-    parser.add_argument("command", choices=["edit", "info", "process", "batch", 
-                                            "generate-silence", "demo"],
-                        help="Command to run")
-    
-    parser.add_argument("filepath", nargs="?", help="Input audio file path")
-    
-    parser.add_argument("--denoise", action="store_true",
-                        help="Apply AI denoising")
-    
-    parser.add_argument("--filter", type=str,
-                        help="Filter type (e.g., lowpass, highpass)")
-    
-    parser.add_argument("--volume", type=float, default=1.0,
-                        help="Volume adjustment (default: 1.0)")
-    
-    parser.add_argument("--output", type=str,
-                        help="Output file path")
-    
-    parser.add_argument("--input-dir", type=str,
-                        help="Input directory for batch processing")
-    
-    parser.add_argument("--output-dir", type=str,
-                        help="Output directory for batch processing")
-    
-    parser.add_argument("--duration", type=int, default=10,
-                        help="Duration for silence generation (seconds)")
-    
-    parser.add_argument("--sample-rate", type=int, default=44100,
-                        help="Sample rate for silence generation")
-    
-    args = parser.parse_args()
-    
-    # Route to appropriate command
-    if args.command == "edit":
-        command_edit(args.filepath, normalize=True)
-    
-    elif args.command == "info":
-        command_info(args.filepath)
-    
-    elif args.command == "process":
-        command_process(
-            args.filepath,
-            denoise=args.denoise,
-            filter=args.filter,
-            volume=args.volume,
-            output=args.output
-        )
-    
-    elif args.command == "batch":
-        command_batch(
-            args.input_dir,
-            args.output_dir,
-            denoise=args.denoise,
-            filter=args.filter,
-            volume=args.volume
-        )
-    
-    elif args.command == "generate-silence":
-        command_generate_silence(
-            args.output,
-            duration=args.duration,
-            sample_rate=args.sample_rate
-        )
-    
-    elif args.command == "demo":
-        command_demo()
+def command_generate_silence(output: str, duration: int = 10, sample_rate: int = 44100) -> None:
+    if duration <= 0 or sample_rate <= 0:
+        raise ValueError("Duration and sample rate must be positive")
+    audio = AudioData()
+    audio.samples = np.zeros((duration * sample_rate, 2), dtype=np.float32)
+    audio.metadata = {"sample_rate": sample_rate, "channels": 2, "duration": duration}
+    audio.save(output)
+    print(f"Generated: {output}")
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Audamix audio editor")
+    parser.add_argument("command", choices=("edit", "info", "process", "batch", "generate-silence", "demo"))
+    parser.add_argument("filepath", nargs="?", help="Input audio file, or demo audio file")
+    parser.add_argument("--input-dir")
+    parser.add_argument("--output-dir")
+    parser.add_argument("--output")
+    parser.add_argument("--denoise", action="store_true")
+    parser.add_argument("--declip", action="store_true")
+    parser.add_argument("--filter", choices=("lowpass", "highpass", "bandpass", "peaking"))
+    parser.add_argument("--cutoff", type=float, default=2000, help="Filter frequency in Hz")
+    parser.add_argument("--volume", type=float, default=1.0)
+    parser.add_argument("--duration", type=int, default=10)
+    parser.add_argument("--sample-rate", type=int, default=44100)
+    args = parser.parse_args(argv)
+    options = dict(denoise=args.denoise, declip=args.declip, filter_type=args.filter,
+                   cutoff=args.cutoff, volume=args.volume)
+    if args.command in ("edit", "info", "process") and not args.filepath:
+        parser.error("This command requires an audio filepath")
+    if args.command == "batch" and (not args.input_dir or not args.output_dir):
+        parser.error("batch requires --input-dir and --output-dir")
+    if args.command == "generate-silence" and not args.output:
+        parser.error("generate-silence requires --output")
+    try:
+        if args.command in ("edit", "info"):
+            command_info(args.filepath)
+        elif args.command == "process":
+            command_process(args.filepath, args.output, **options)
+        elif args.command == "batch":
+            command_batch(args.input_dir, args.output_dir, **options)
+        elif args.command == "generate-silence":
+            command_generate_silence(args.output, args.duration, args.sample_rate)
+        else:
+            if not args.filepath:
+                parser.error("demo requires an audio filepath")
+            command_process(args.filepath, args.output or "demo_output.wav", volume=1.5)
+    except (OSError, ValueError, RuntimeError) as exc:
+        parser.exit(1, f"Audamix: {exc}\n")
 
 
 if __name__ == "__main__":

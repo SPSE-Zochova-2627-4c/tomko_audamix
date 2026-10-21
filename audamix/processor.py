@@ -28,7 +28,7 @@ class ProcessingStep(Enum):
     FILTER_BANDPASS = 'filter_bandpass'
     CLASSICAL_DENOISE = 'classical_denoise'
     AI_DENOISE = 'ai_denoise'
-    AI_DECLIPE = 'ai_declipe'
+    AI_DECLIP = 'ai_declip'
 
 
 class ProcessingResult:
@@ -76,6 +76,7 @@ class AudioProcessor:
         self._history: List[Dict[str, Any]] = []
         self._step_count: int = 0
         self._pending_operations: List[tuple] = []
+        self._undo_stack: List[AudioData] = []
     
     @property
     def current_audio(self) -> Optional[AudioData]:
@@ -106,6 +107,9 @@ class AudioProcessor:
         try:
             audio = AudioData.load(filepath, normalize)
             self._current_audio = audio
+            self._undo_stack.clear()
+            self._history.clear()
+            self._step_count = 0
             self._history.append({
                 'step': self._step_count,
                 'type': 'load',
@@ -156,6 +160,7 @@ class AudioProcessor:
             processor = SignalProcessor(self._current_audio)
             result_audio = processor.adjust_volume(factor)
             
+            self._undo_stack.append(self._current_audio)
             self._current_audio = result_audio
             self._history.append({
                 'step': self._step_count,
@@ -164,6 +169,7 @@ class AudioProcessor:
                 'message': f"Volume: x{factor:.2f}",
                 'factor': factor
             })
+            self._step_count += 1
             
             return ProcessingResult(
                 success=True,
@@ -206,6 +212,7 @@ class AudioProcessor:
             processor = SignalProcessor(self._current_audio)
             result_audio = processor.apply_filter(filter_type, cutoff_freq, q_factor)
             
+            self._undo_stack.append(self._current_audio)
             self._current_audio = result_audio
             self._history.append({
                 'step': self._step_count,
@@ -216,6 +223,7 @@ class AudioProcessor:
                 'cutoff_freq': cutoff_freq,
                 'q_factor': q_factor
             })
+            self._step_count += 1
             
             return ProcessingResult(
                 success=True,
@@ -254,6 +262,7 @@ class AudioProcessor:
             processor = SignalProcessor(self._current_audio)
             result_audio = processor.classical_denoise(iterations=iterations)
             
+            self._undo_stack.append(self._current_audio)
             self._current_audio = result_audio
             self._history.append({
                 'step': self._step_count,
@@ -261,6 +270,7 @@ class AudioProcessor:
                 'success': True,
                 'message': f"Classical denoise (iterations={iterations})"
             })
+            self._step_count += 1
             
             return ProcessingResult(
                 success=True,
@@ -305,6 +315,7 @@ class AudioProcessor:
                 strength=strength
             )
             
+            self._undo_stack.append(self._current_audio)
             self._current_audio = result_audio
             self._history.append({
                 'step': self._step_count,
@@ -312,6 +323,7 @@ class AudioProcessor:
                 'success': True,
                 'message': message
             })
+            self._step_count += 1
             
             return ProcessingResult(
                 success=result_audio.metadata.get('denoised', False),
@@ -326,7 +338,7 @@ class AudioProcessor:
                 error=str(e)
             )
     
-    def declipe(
+    def declip(
         self,
         confidence: float = 0.7
     ) -> ProcessingResult:
@@ -348,18 +360,22 @@ class AudioProcessor:
         
         try:
             ai = AudioAI()
-            result_audio, message = ai.declipe(
+            result_audio, message = ai.declip(
                 self._current_audio,
                 confidence=confidence
             )
             
+            if not result_audio.metadata.get('declipped', False):
+                return ProcessingResult(success=False, message=message, data=self._current_audio)
+            self._undo_stack.append(self._current_audio)
             self._current_audio = result_audio
             self._history.append({
                 'step': self._step_count,
-                'type': 'ai_declipe',
+                'type': 'ai_declip',
                 'success': True,
                 'message': message
             })
+            self._step_count += 1
             
             return ProcessingResult(
                 success=result_audio.metadata.get('declipped', False),
@@ -381,18 +397,18 @@ class AudioProcessor:
         Returns:
             ProcessingResult indicating success
         """
-        if not self._history:
+        if not self._undo_stack:
             return ProcessingResult(
                 success=False,
                 message="Nothing to undo"
             )
         
-        self._history.pop()
-        
-        if hasattr(self, '_current_audio'):
-            prev_result = self._history[-1] if self._history else None
-            if prev_result and 'data' in prev_result:
-                self._current_audio = prev_result['data']
+        self._current_audio = self._undo_stack.pop()
+        while self._history and self._history[-1]['type'] == 'save':
+            self._history.pop()
+        if self._history and self._history[-1]['type'] != 'load':
+            self._history.pop()
+        self._step_count -= 1
         
         return ProcessingResult(
             success=True,

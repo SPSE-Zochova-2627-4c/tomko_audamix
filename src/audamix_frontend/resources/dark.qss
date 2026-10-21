@@ -1,0 +1,10 @@
+QMainWindow, QWidget { background: @background@; color: @text@; }
+QMenuBar, QMenu, QToolBar, QStatusBar { background: @panel@; color: @text@; }
+QToolBar { spacing: 5px; padding: 4px; border: 1px solid @border@; }
+QToolButton { min-width: 34px; min-height: 28px; border: 1px solid transparent; border-radius: 3px; }
+QToolButton:hover, QToolButton:checked { background: @accent_soft@; border-color: @accent@; }
+QPushButton, QComboBox, QDoubleSpinBox { background: @control@; border: 1px solid @border@; padding: 4px; }
+QPushButton:checked { background: @accent_soft@; }
+QPushButton:disabled, QToolButton:disabled { color: @muted@; }
+QSlider::groove:horizontal { height: 5px; background: @border@; }
+QSlider::handle:horizontal { width: 11px; margin: -5px 0; background: @accent@; border-radius: 5px; }
