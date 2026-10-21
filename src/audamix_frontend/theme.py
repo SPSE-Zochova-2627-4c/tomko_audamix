@@ -7,7 +7,6 @@ from importlib.resources import files
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
-
 COLORS: dict[str, dict[str, str]] = {
     "dark": {
         "background": "#202329", "panel": "#2d323a", "control": "#39404a",

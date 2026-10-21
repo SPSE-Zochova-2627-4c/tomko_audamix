@@ -2,27 +2,57 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import cast
 
-from PySide6.QtCore import QSettings, QTimer, Qt, Slot
+from PySide6.QtCore import QSettings, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent
 from PySide6.QtWidgets import (
-    QApplication, QDockWidget, QFileDialog, QHBoxLayout, QInputDialog,
-    QLabel, QMainWindow, QMenu, QMessageBox, QProgressBar, QPushButton, QScrollBar, QSlider,
-    QToolBar, QToolButton, QVBoxLayout, QWidget,
+    QApplication,
+    QDockWidget,
+    QFileDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QScrollBar,
+    QSlider,
+    QToolBar,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
 
-from .model import ProjectModel, StubProject, StubTransport, Transport
+from .model import ProjectModel, Transport
+from .real_backend import AudioProject, AudioTransport
 from .theme import apply_theme
 from .widgets import SelectionBar, TimelineRuler, ViewState, WaveformView
+
+
+class EffectThread(QThread):
+    result = Signal(bool, str)
+
+    def __init__(self, project: ProjectModel, name: str, parameters: dict[str, float],
+                 parent: QWidget) -> None:
+        super().__init__(parent)
+        self._project = project
+        self._name = name
+        self._parameters = parameters
+
+    def run(self) -> None:
+        self.result.emit(*self._project.apply_effect(self._name, self._parameters))
 
 
 class MainWindow(QMainWindow):
     def __init__(self, project: ProjectModel | None = None, transport: Transport | None = None,
                  settings: QSettings | None = None) -> None:
         super().__init__()
-        self.project: ProjectModel = project if project is not None else StubProject()
-        self.transport: Transport = transport if transport is not None else StubTransport()
+        self.project: ProjectModel = project if project is not None else AudioProject()
+        self.transport: Transport = transport if transport is not None else AudioTransport(self)
         self.settings = settings if settings is not None else QSettings("Audamix", "Frontend")
         self.theme = str(self.settings.value("theme", "dark"))
         if self.theme not in {"dark", "light"}:
@@ -31,9 +61,9 @@ class MainWindow(QMainWindow):
         apply_theme(app, self.theme)
         self.view = ViewState()
         self.selection = (0.0, 0.0)
-        self.actions: dict[str, QAction] = {}
-        self._pending_effect: tuple[str, dict[str, float]] | None = None
-        self.setWindowTitle("Audamix — frontend demo")
+        self.commands: dict[str, QAction] = {}
+        self._effect_thread: EffectThread | None = None
+        self.setWindowTitle("Audamix")
         self.setMinimumSize(800, 520)
         self.resize(1160, 720)
         self._create_actions()
@@ -41,7 +71,7 @@ class MainWindow(QMainWindow):
         self._create_toolbars()
         self._create_track_area()
         self._create_selection_dock()
-        self.statusBar().showMessage("Frontend demo — open an audio filename to show a sample waveform")
+        self.statusBar().showMessage("Open an audio file to begin")
         self.rate_label = QLabel("No project", self)
         self.statusBar().addPermanentWidget(self.rate_label)
         self.progress = QProgressBar(self)
@@ -72,7 +102,7 @@ class MainWindow(QMainWindow):
         if shortcut is not None:
             action.setShortcut(shortcut)
         self.addAction(action)
-        self.actions[name] = action
+        self.commands[name] = action
         return action
 
     def _create_actions(self) -> None:
@@ -87,7 +117,7 @@ class MainWindow(QMainWindow):
         self._action("fit_selection", "Fit Selection", "Ctrl+E").triggered.connect(self._fit_selection)
         self._action("fit_project", "Fit Project", "Ctrl+F").triggered.connect(self._fit_project)
         self._action("light_theme", "Light Theme", checkable=True).triggered.connect(self._toggle_theme)
-        self.actions["light_theme"].setChecked(self.theme == "light")
+        self.commands["light_theme"].setChecked(self.theme == "light")
         self._action("play_stop", "Play / Stop", "Space").triggered.connect(self._play_stop)
         self._action("pause", "Pause", "P").triggered.connect(self._pause)
         self._action("stop", "Stop").triggered.connect(self._stop)
@@ -99,7 +129,7 @@ class MainWindow(QMainWindow):
             action = self._action(name, label, checkable=True)
             group.addAction(action)
             action.triggered.connect(self._tool_changed)
-        self.actions["selection_tool"].setChecked(True)
+        self.commands["selection_tool"].setChecked(True)
         self._action("mute", "Mute", checkable=True).triggered.connect(self._controls_changed)
         self._action("solo", "Solo", checkable=True).triggered.connect(self._controls_changed)
         self._action("collapse", "Collapse Track", checkable=True).triggered.connect(self._collapse)
@@ -126,7 +156,7 @@ class MainWindow(QMainWindow):
         for title, names in menus:
             menu = self.menuBar().addMenu(title)
             for name in names:
-                menu.addAction(self.actions[name])
+                menu.addAction(self.commands[name])
 
     def _create_toolbars(self) -> None:
         for title, names in (("Transport", ("pause", "play_stop", "stop", "skip_start", "skip_end")),
@@ -136,7 +166,7 @@ class MainWindow(QMainWindow):
             bar.setObjectName(f"toolbar_{title.lower()}")
             bar.setMovable(True)
             for name in names:
-                bar.addAction(self.actions[name])
+                bar.addAction(self.commands[name])
             self.addToolBar(bar)
 
     def _create_track_area(self) -> None:
@@ -167,27 +197,27 @@ class MainWindow(QMainWindow):
         dropdown.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         dropdown_menu = QMenu(dropdown)
         for name in ("mute", "solo", "collapse", "close_track"):
-            dropdown_menu.addAction(self.actions[name])
+            dropdown_menu.addAction(self.commands[name])
         dropdown.setMenu(dropdown_menu)
         name_row.addWidget(dropdown)
         self.collapse_button = QPushButton("−", panel)
         self.collapse_button.setToolTip("Collapse Track")
         self.collapse_button.setFixedWidth(25)
-        self.collapse_button.clicked.connect(self.actions["collapse"].trigger)
+        self.collapse_button.clicked.connect(self.commands["collapse"].trigger)
         name_row.addWidget(self.collapse_button)
         self.close_button = QPushButton("×", panel)
         self.close_button.setToolTip("Close Track")
         self.close_button.setFixedWidth(25)
-        self.close_button.clicked.connect(self.actions["close_track"].trigger)
+        self.close_button.clicked.connect(self.commands["close_track"].trigger)
         name_row.addWidget(self.close_button)
         panel_layout.addLayout(name_row)
         self.track_info = QLabel("", panel)
         self.track_info.setWordWrap(True)
         panel_layout.addWidget(self.track_info)
         self.mute_button = QToolButton(panel)
-        self.mute_button.setDefaultAction(self.actions["mute"])
+        self.mute_button.setDefaultAction(self.commands["mute"])
         self.solo_button = QToolButton(panel)
-        self.solo_button.setDefaultAction(self.actions["solo"])
+        self.solo_button.setDefaultAction(self.commands["solo"])
         buttons = QHBoxLayout()
         buttons.addWidget(self.mute_button)
         buttons.addWidget(self.solo_button)
@@ -243,9 +273,17 @@ class MainWindow(QMainWindow):
                      "skip_start", "skip_end", "mute", "solo", "collapse", "close_track",
                      "gain", "lowpass", "highpass", "bandpass", "classical_denoise",
                      "ai_denoise", "ai_declip", "zoom_in", "zoom_out", "fit_project"):
-            self.actions[name].setEnabled(loaded)
-        self.actions["fit_selection"].setEnabled(loaded and self.selection[1] > self.selection[0])
-        self.actions["undo"].setEnabled(self.project.can_undo())
+            self.commands[name].setEnabled(loaded)
+        self.gain_slider.setEnabled(loaded and self._effect_thread is None)
+        self.pan_slider.setEnabled(loaded and self._effect_thread is None)
+        self.commands["fit_selection"].setEnabled(loaded and self.selection[1] > self.selection[0])
+        self.commands["undo"].setEnabled(self.project.can_undo())
+        if self._effect_thread is not None:
+            for name in ("open", "export", "undo", "play_stop", "pause", "stop", "close_track",
+                         "mute", "solo",
+                         "gain", "lowpass", "highpass", "bandpass", "classical_denoise",
+                         "ai_denoise", "ai_declip"):
+                self.commands[name].setEnabled(False)
 
     @Slot(bool)
     def _open(self, checked: bool = False) -> None:
@@ -255,6 +293,9 @@ class MainWindow(QMainWindow):
             self.open_path(path)
 
     def open_path(self, path: str) -> None:
+        if self._effect_thread is not None:
+            return
+        self.transport.load("")
         ok, message = self.project.open_file(path)
         self.statusBar().showMessage(message)
         if not ok:
@@ -263,6 +304,11 @@ class MainWindow(QMainWindow):
         track = self.project.snapshot()
         if track is not None:
             self.view.duration = track.duration
+            self.gain_slider.setValue(100)
+            self.pan_slider.setValue(0)
+            self.commands["mute"].setChecked(False)
+            self.commands["solo"].setChecked(False)
+            self._controls_changed()
             self.transport.stop()
             self.selection = (0.0, 0.0)
             self.selection_bar.set_selection(0.0, 0.0)
@@ -274,6 +320,8 @@ class MainWindow(QMainWindow):
         del checked
         path, _ = QFileDialog.getSaveFileName(self, "Export audio", "", "WAV (*.wav)")
         if path:
+            if not Path(path).suffix:
+                path += ".wav"
             ok, message = self.project.export_file(path)
             self.statusBar().showMessage(message)
             if not ok:
@@ -283,7 +331,8 @@ class MainWindow(QMainWindow):
     def _undo(self, checked: bool = False) -> None:
         del checked
         if self.project.undo():
-            self.statusBar().showMessage("Last demo change undone")
+            self.transport.load("")
+            self.statusBar().showMessage("Last change undone")
         self._refresh()
 
     @Slot(bool)
@@ -303,7 +352,7 @@ class MainWindow(QMainWindow):
         self.selection = (start, end)
         self.waveform.set_selection(start, end)
         self.selection_bar.set_selection(start, end)
-        self.actions["fit_selection"].setEnabled(end > start and self.project.snapshot() is not None)
+        self.commands["fit_selection"].setEnabled(end > start and self.project.snapshot() is not None)
 
     @Slot(float)
     def _seek(self, at: float) -> None:
@@ -362,7 +411,7 @@ class MainWindow(QMainWindow):
     @Slot(bool)
     def _tool_changed(self, checked: bool = False) -> None:
         del checked
-        self.waveform.tool = "zoom" if self.actions["zoom_tool"].isChecked() else "selection"
+        self.waveform.tool = "zoom" if self.commands["zoom_tool"].isChecked() else "selection"
 
     @Slot(bool)
     def _toggle_theme(self, checked: bool = False) -> None:
@@ -377,15 +426,28 @@ class MainWindow(QMainWindow):
         del checked
         if self.transport.is_playing():
             self.transport.stop()
+            self.statusBar().showMessage("Stopped")
         else:
+            try:
+                position = self.transport.position()
+                self.transport.load(self.project.preview_path())
+                self.transport.seek(position)
+            except (OSError, RuntimeError, ValueError) as exc:
+                QMessageBox.warning(self, "Playback failed", str(exc))
+                return
             self.transport.play()
+            self.statusBar().showMessage("Playback requested")
         self.waveform.set_playhead(self.transport.position())
-        self.statusBar().showMessage("Demo transport — no audio output")
 
     @Slot(bool)
     def _pause(self, checked: bool = False) -> None:
         del checked
-        self.transport.pause()
+        if self.transport.is_paused():
+            self.transport.play()
+            self.statusBar().showMessage("Playback resumed")
+        elif self.transport.is_playing():
+            self.transport.pause()
+            self.statusBar().showMessage("Paused")
 
     @Slot(bool)
     def _stop(self, checked: bool = False) -> None:
@@ -414,8 +476,13 @@ class MainWindow(QMainWindow):
     @Slot(int)
     def _controls_changed(self, value: bool | int = False) -> None:
         del value
-        self.project.set_controls(self.actions["mute"].isChecked(), self.actions["solo"].isChecked(),
+        self.project.set_controls(self.commands["mute"].isChecked(), self.commands["solo"].isChecked(),
                                   self.gain_slider.value() / 100, self.pan_slider.value() / 100)
+        if self.transport.is_playing():
+            position = self.transport.position()
+            self.transport.load(self.project.preview_path())
+            self.transport.seek(position)
+            self.transport.play()
 
     @Slot(bool)
     def _collapse(self, checked: bool = False) -> None:
@@ -425,14 +492,16 @@ class MainWindow(QMainWindow):
     @Slot(bool)
     def _close_track(self, checked: bool = False) -> None:
         del checked
+        self.transport.load("")
         self.project.close()
-        self.transport.stop()
         self.selection = (0.0, 0.0)
         self._refresh()
 
     @Slot(bool)
     def _effect(self, checked: bool = False) -> None:
         del checked
+        if self._effect_thread is not None:
+            return
         sender = self.sender()
         if not isinstance(sender, QAction):
             return
@@ -444,36 +513,54 @@ class MainWindow(QMainWindow):
                 return
             parameters["dB"] = value
         elif name in {"lowpass", "highpass", "bandpass"}:
-            value, accepted = QInputDialog.getDouble(self, "Filter", "Frequency (Hz)", 2000, 1, 22049, 0)
+            track = self.project.snapshot()
+            maximum = max(1.0, track.sample_rate / 2 - 1) if track is not None else 22049.0
+            value, accepted = QInputDialog.getDouble(
+                self, "Filter", "Frequency (Hz)", min(2000.0, maximum), 1, maximum, 0,
+            )
             if not accepted:
                 return
             parameters["Hz"] = value
         if name == "ai_declip":
             QMessageBox.information(self, "AI Declip", "A reconstructed waveform would be an estimate.")
-        self._pending_effect = (name, parameters)
+        self.transport.stop()
         self.progress.show()
-        self.statusBar().showMessage(f"Simulating {name}…")
-        QTimer.singleShot(200, self._finish_effect)
+        self.statusBar().showMessage(f"Applying {name}…")
+        thread = EffectThread(self.project, name, parameters, self)
+        self._effect_thread = thread
+        thread.result.connect(self._finish_effect)
+        thread.finished.connect(self._effect_finished)
+        self._refresh()
+        thread.start()
 
-    @Slot()
-    def _finish_effect(self) -> None:
-        pending = self._pending_effect
-        self._pending_effect = None
+    @Slot(bool, str)
+    def _finish_effect(self, ok: bool, message: str) -> None:
         self.progress.hide()
-        if pending is None:
-            return
-        ok, message = self.project.apply_effect(*pending)
         self.statusBar().showMessage(message)
         if not ok:
-            QMessageBox.warning(self, "Effect unavailable", message)
+            QMessageBox.warning(self, "Effect failed", message)
+        else:
+            self.transport.load("")
+        self._refresh()
+
+    @Slot()
+    def _effect_finished(self) -> None:
+        if self._effect_thread is not None:
+            self._effect_thread.deleteLater()
+            self._effect_thread = None
         self._refresh()
 
     @Slot(bool)
     def _about(self, checked: bool = False) -> None:
         del checked
-        QMessageBox.information(self, "About Audamix", "Audamix frontend demo. No audio engine is attached.")
+        QMessageBox.information(self, "About Audamix", "Audamix audio editor")
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        if self._effect_thread is not None:
+            event.ignore()
+            self.statusBar().showMessage("Wait for the effect to finish before closing")
+            return
+        self.transport.load("")
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("window_state", self.saveState())
         self.settings.setValue("size", self.size())

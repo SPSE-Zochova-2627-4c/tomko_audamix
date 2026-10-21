@@ -19,6 +19,13 @@ from audamix.data.audio_data import AudioData
 from audamix.dsp.signal_processor import SignalProcessor
 
 
+def _create_audio_ai():
+    """Load optional AI dependencies only when an AI operation is requested."""
+    from audamix.ai.audio_ai import AudioAI
+
+    return AudioAI()
+
+
 class ProcessingStep(Enum):
     """Types of processing operations."""
     VOLUME_ADJUST = 'volume_adjust'
@@ -307,9 +314,7 @@ class AudioProcessor:
             )
         
         try:
-            from audamix.ai.audio_ai import AudioAI
-
-            ai = AudioAI()
+            ai = _create_audio_ai()
             result_audio, message = ai.denoise(
                 self._current_audio,
                 threshold=threshold,
@@ -360,9 +365,7 @@ class AudioProcessor:
             )
         
         try:
-            from audamix.ai.audio_ai import AudioAI
-
-            ai = AudioAI()
+            ai = _create_audio_ai()
             result_audio, message = ai.declip(
                 self._current_audio,
                 confidence=confidence

@@ -1,8 +1,8 @@
 # Architektúra a implementovaný stav
 
-Tento dokument opisuje aktuálny kód v repozitári, nie cieľový stav zo `SPEC.md`. Audio jadro a Qt rozhranie sú zatiaľ oddelené. Žiadny klik v GUI nespustí reálne DSP ani AI spracovanie.
+Tento dokument opisuje aktuálny kód v repozitári, nie cieľový stav zo `SPEC.md`. Qt rozhranie používa existujúcu dátovú a DSP vrstvu cez adaptéry; AI zostáva voliteľné.
 
-## Tok skutočného audia: CLI
+## Tok skutočného audia
 
 ```text
 lokálny súbor
@@ -18,24 +18,22 @@ lokálny súbor
 
 `audamix/ai/audio_ai.py` poskytuje `AudioAI.denoise` cez lokálne predtrénovaný DeepFilterNet3 a `AudioAI.declip` cez voliteľný VoiceFixer. Konvertuje rozloženie kanálov, podľa potreby prevzorkuje a po spracovaní obnoví pôvodný počet vzoriek a metadáta. AI denoise je určený najmä na reč. Parametre `threshold`, `strength` a `confidence` zostali v API, ale model ich v súčasnosti nepoužíva. VoiceFixer nie je povinnou závislosťou; bez neho sa declip odmietne. Dostupnosť váh a kvalita výsledku tu nie sú overené. Základné CLI načítava AI modul až pri AI operácii, takže `requirements.txt` nevyžaduje Torch ani Rust; voliteľné závislosti sú v `requirements-ai.txt`.
 
-`audamix/processor.py` koordinuje načítanie, operácie, export a `ProcessingResult` s úspechom, správou a chybou. Uchováva históriu a predchádzajúce objekty pre jedno-krokové návraty cez `undo`. Názov operácie je všade `declip`. GUI túto triedu zatiaľ nepoužíva.
+`audamix/processor.py` koordinuje načítanie, operácie, export a `ProcessingResult` s úspechom, správou a chybou. Uchováva históriu a predchádzajúce objekty pre jedno-krokové návraty cez `undo`. Názov operácie je všade `declip`. GUI používa vlastný adaptér `AudioProject` nad rovnakými `AudioData` a `SignalProcessor`; CLI používa `AudioProcessor`.
 
 `audamix/main.py` je CLI pre `info`, `edit`, `process`, `batch`, `generate-silence` a `demo`. `edit` vypisuje údaje, nemá interaktívne ovládanie. `process` reťazí AI denoise, declip, filter a hlasitosť v tomto poradí. `--cutoff` je frekvencia v Hz. `batch` prejde podporované prípony v adresári. Chyby sa vypíšu a vrátia nenulový kód. Vstup sa nesmie zapísať na tú istú cestu ako výstup.
 
-## Tok frontend prototypu
+## Tok desktopovej aplikácie
 
 ```text
-QAction / myš / klávesnica
-  → MainWindow
-  → ProjectModel alebo Transport (typing.Protocol)
-  → StubProject / StubTransport
-  → TrackSnapshot / stav
-  → QWidget + QPainter
+python audamix.py → QApplication → MainWindow
+QAction / myš / klávesnica → ProjectModel / Transport (protokoly)
+→ AudioProject (AudioData + SignalProcessor) / AudioTransport (Qt Multimedia)
+→ TrackSnapshot / QPainter alebo dočasný WAV / QMediaPlayer
 ```
 
-`src/audamix_frontend/model.py` definuje protokoly a ukážkové implementácie. `StubProject.open_file` kontroluje iba existenciu súboru a príponu WAV/FLAC/OGG/AIFF; obsah **nedekóduje**. Vytvorí 90-sekundový dvojkanálový priebeh s ukážkovými hodnotami 44 100 Hz a 3 969 000 vzoriek. `apply_effect` zvýši revíziu a demo históriu, no nemení vzorky. `undo` obnoví predchádzajúci snapshot. `export_file` vždy vráti zrozumiteľnú chybu a nič nezapíše. `StubTransport` mení iba časovú pozíciu; nevydáva zvuk. Track gain, pan, mute a solo sa odovzdávajú cez `set_controls`, ale nemajú zvukový účinok.
+`src/audamix_frontend/model.py` definuje protokoly a izolované stuby. Predvolená aplikácia používa `real_backend.py`: `AudioProject` dekóduje lokálny súbor, uchováva históriu pre undo, vytvára peak/RMS dáta pre každý kanál, volá DSP alebo voliteľný AI model a exportuje výsledok. `AudioTransport` vytvára Qt Multimedia prehrávač až pri prvom prehratí a hrá náhľadový WAV. `set_controls` mení Mute, Gain a Pan náhľadu aj exportu; Solo pri jednej stope nemení audio.
 
-`window.py` vytvára jedno `QMainWindow`, zdieľané `QAction` objekty pre menu, panely a skratky, výber súboru, stav akcií, stavový riadok, formuláre úprav a simulovaný priebeh operácie. Počas demo efektu ukáže neurčitý indikátor na 200 ms. Qt vlastní widgety cez rodičov; `QTimer` je dieťaťom hlavného okna. `QSettings` ukladá geometriu, veľkosť, rozloženie panelov a svetlú/tmavú tému.
+`window.py` vytvára `QMainWindow`, zdieľané `QAction` objekty, dialógy a stavový riadok. Efekty spúšťa v `QThread` s indikátorom priebehu. Počas efektu blokuje konfliktné akcie a zatvorenie okna. `QSettings` ukladá geometriu, rozloženie panelov a tému.
 
 `widgets.py` obsahuje `ViewState` na prevod času a pixelov, `TimelineRuler`, `WaveformView` a `SelectionBar`. Časová os prispôsobí hustotu značiek zoomu. Waveform a časová os vytvoria `QPixmap` pri zmene veľkosti, dát, témy či zoomu; bežný `paintEvent` kreslí cache, výber a playhead. Výber vzniká kliknutím/ťahaním. Nástroj Zoom priblíži ľavým a oddiali pravým klikom. Koliesko posúva, Ctrl + koliesko približuje okolo kurzora. Stereo kanály sú zobrazené oddelene.
 
@@ -50,13 +48,13 @@ QAction / myš / klávesnica
 | Vybrať všetko / zrušiť výber | Ctrl+A / Esc |
 | Priblížiť / oddialiť | Ctrl+1 / Ctrl+3 |
 | Prispôsobiť výber / projekt | Ctrl+E / Ctrl+F |
-| Demo play/stop / pause | Space / P |
+| Play/stop / pause | Space / P |
 | Začiatok / koniec | Home / End |
 
-V GUI nie sú nahrávanie, strih ani kopírovanie, preto ich skratky neexistujú. Akcie sa vypnú, keď bez načítanej demo stopy alebo výberu nedávajú zmysel. Mute, Solo, Gain a Pan v paneli sú UI stav.
+V GUI nie sú nahrávanie, strih ani kopírovanie, preto ich skratky neexistujú. Akcie sa vypnú, keď bez načítanej stopy alebo výberu nedávajú zmysel. Mute, Gain a Pan ovplyvňujú náhľad aj export; Solo pri jednej stope nemá efekt.
 
 ## Testy a známe hranice
 
-`tests/test_audio_workflow.py` testuje zmenu vzoriek bez mutácie vstupu, frekvencie filtrov, stereo, undo, declip volanie a export. `tests/test_frontend.py` obsahuje pytest-qt testy vytvorenia okna, stavov akcií, výberu/zoomu a QSettings. `tests/manual_frontend_smoke.py` overí tie isté základné GUI toky v offscreen režime bez pytest-qt. V miestnom offline prostredí prešlo 5 audio testov a manuálny Qt smoke test; pytest-qt, ruff a mypy chýbali a nebolo ich možné doinštalovať. Statické brány a pytest-qt testy preto zostávajú neoverené.
+`tests/test_audio_workflow.py` overuje jadro a CLI. `tests/test_frontend.py` testuje GUI, zoom, QSettings, reálny gain, undo a export. `tests/manual_frontend_smoke.py` spúšťa offscreen GUI s platným WAV. Aktuálne príkazy a výsledky sú v `VERIFICATION.md`.
 
-Zostáva zapojiť skutočné backendy za `ProjectModel` a `Transport`, dekódovať súbor pre metadáta a waveform, vykonávať efekty a export, a doplniť end-to-end testy. Staršia špecifikácia vyžaduje viac, než dnes poskytuje oddelený frontend prototyp.
+Skutočné prehrávanie cez systémové zariadenie a AI modely nie sú v headless prostredí overené. GUI stále spracúva iba jednu stopu a efekty sa aplikujú na celú stopu.

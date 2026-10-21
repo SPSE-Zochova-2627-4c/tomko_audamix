@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal, Slot
-from PySide6.QtGui import QMouseEvent, QPaintEvent, QPainter, QPen, QPixmap, QResizeEvent, QWheelEvent
+from PySide6.QtGui import QMouseEvent, QPainter, QPaintEvent, QPen, QPixmap, QResizeEvent, QWheelEvent
 from PySide6.QtWidgets import QDoubleSpinBox, QHBoxLayout, QLabel, QWidget
 
 from .model import TrackSnapshot
@@ -147,14 +147,13 @@ class WaveformView(QWidget):
                 scale = channel_height * 0.43
                 # Peaks are precomputed once by the backend. This loop runs only
                 # when the cache changes, never on playhead/selection repaints.
-                count = len(self.track.peaks)
+                peaks_for_channel = (self.track.channel_peaks[channel]
+                                     if self.track.channel_peaks else self.track.peaks)
+                count = len(peaks_for_channel)
                 for x in range(ruler_width, self.width()):
                     at = self.view.time_at(x - ruler_width)
                     index = min(count - 1, int(at / self.track.duration * count))
-                    peak, rms = self.track.peaks[index]
-                    if channel:
-                        peak *= 0.82
-                        rms *= 0.82
+                    peak, rms = peaks_for_channel[index]
                     painter.setPen(QPen(color(self.theme, "wave")))
                     painter.drawLine(x, round(center_y - peak * scale), x, round(center_y + peak * scale))
                     painter.setPen(QPen(color(self.theme, "rms")))

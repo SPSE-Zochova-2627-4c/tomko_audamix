@@ -1,19 +1,14 @@
-# Predpoklady pre Qt frontend
+# Predpoklady
 
-Zadanie frontendu obsahovalo nevyplnené zástupné sekcie „PROJECT CONTEXT“, „SPEC“ a „FEATURES IN SCOPE“. Ako funkčnú špecifikáciu som preto použil súbor `SPEC.md` v repozitári. Posledná výslovná požiadavka používateľa určila Python 3.11+ a PySide6; frontend je samostatný balík a neimportuje existujúce audio jadro.
+Pôvodné zadanie frontendu obsahovalo prázdne sekcie pre kontext, špecifikáciu a zoznam funkcií. Pri rozsahu som vychádzal zo súboru `SPEC.md`, existujúceho audio jadra a následnej požiadavky na priamy štart zo súboru.
 
-## Zvolený rozsah prvej verzie
-
-- Jedna lokálna audio stopa; názov, dĺžka, frekvencia, kanály a počet vzoriek.
-- Časová os, rozlíšené stereo kanály, kurzor, výber, posuv a zoom.
-- Ukážkový Play/Pause/Stop a presun na začiatok alebo koniec.
-- Formuláre pre hlasitosť, low/high/band-pass, klasické odšumenie, AI denoise a AI declip.
-- Demo undo, dialóg exportu s pravdivým oznámením, že backend chýba.
-- Mute, Solo, Gain, Pan, zbalenie/zatvorenie stopy a stavové hlásenia.
-- Tmavá a svetlá téma s uložením nastavení.
-
-`SPEC.md` podmieňuje prehrávanie dostupnosťou audio vrstvy. Keďže frontend má byť samostatný, transport iba posúva ukazovateľ a nevydáva zvuk. Súbor sa nedekóduje: stub kontroluje existenciu a príponu, potom pripraví deterministické ukážkové dáta. Čísla v paneli preto nie sú metadátami vstupného súboru. Export vždy odmietne zápis. Efekty vytvoria iba demo históriu; skutočné audio zostáva nedotknuté. Tieto obmedzenia sú v UI uvedené.
-
-Výber a zoom sú stav rozhrania; track close vyloží demo stopu. Viacstopové projekty a záznam sú podľa `SPEC.md` budúce rozšírenia. Playback meter chýba, pretože stub nemá reálne úrovne. Strih a kopírovanie nie sú v rozsahu prvej verzie. Menu Effects je pridané, lebo špecifikácia vyžaduje ovládanie DSP a AI metód. Ostatné Audacity menu bez opory v špecifikácii sa nepridali.
-
-Frontend používa len PySide6 a štandardnú knižnicu. NumPy je závislosťou oddeleného audio jadra, nie UI. Vrcholy ukážkového priebehu vznikajú raz pomocou `math`.
+- Aplikácia má jednu lokálnu mono alebo stereo stopu. Viacstopový model neexistuje.
+- `python audamix.py` z koreňa repozitára je hlavný vstupný bod. Závislosti sa inštalujú z `audamix/requirements.txt`; nie je potrebné inštalovať projekt ako balík.
+- GUI ponúka Open, Export, Play/Pause/Stop, presun na začiatok/koniec, výber kurzorom a myšou, zoom, Mute/Solo/Gain/Pan, gain, low/high/band-pass, klasické odšumenie, AI denoise/declip, undo, témy a ukladanie stavu okna.
+- Efekty sa aplikujú na celú stopu, pretože existujúce DSP rozhranie pracuje s celým `AudioData`. Výber slúži na navigáciu a priblíženie.
+- Priebeh počíta najviac 2048 peak/RMS blokov na kanál pri načítaní alebo úprave. Je to kompromis medzi detailom a rýchlosťou kreslenia.
+- Náhľad sa pri prehrávaní renderuje ako dočasný WAV. Mute, Gain a Pan ovplyvňujú náhľad aj export; Solo pri jednej stope nemení zvuk.
+- Gain efekt používa dB, Gain posuvník násobok 0 až 2. Pan pri stereu tlmí protiľahlý kanál; pri mono nemá účinok.
+- Efekty bežia v `QThread`, aby okno zostalo responzívne. Počas operácie sú konfliktné akcie vypnuté a okno sa dá zavrieť po dokončení.
+- AI závislosti sú voliteľné; chýbajúci model sa oznámi chybou. `declip` je presný názov operácie a rekonštrukcia je odhad.
+- Tmavá téma je predvolená. `QSettings` ukladá geometriu, rozloženie panelov a výber témy.

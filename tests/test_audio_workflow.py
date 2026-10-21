@@ -74,7 +74,7 @@ class AudioWorkflowTests(unittest.TestCase):
         processor = create_processor(source)
         restored = make_audio(np.array([0.7, 0.8, 0.25]))
         restored.metadata["declipped"] = True
-        with patch("audamix.processor.AudioAI") as ai_class:
+        with patch("audamix.processor._create_audio_ai") as ai_class:
             ai_class.return_value.declip.return_value = (restored, "Restored estimate")
             result = processor.declip()
             ai_class.return_value.declip.assert_called_once()

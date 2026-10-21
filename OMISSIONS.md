@@ -1,12 +1,13 @@
 # Vedome vynechané funkcie
 
-| Funkcia Audacity | Dôvod |
+| Funkcia | Dôvod |
 |---|---|
-| Nahrávanie, výber zariadenia a recording meter | Frontend nemá capture/audio vrstvu; záznam je v `SPEC.md` budúce rozšírenie. |
-| Strih, copy/paste, trim, silence, envelope/draw | Prvá verzia špecifikácie tieto editačné nástroje nevyžaduje. |
-| Viac stôp, label tracks, MIDI a spectrogram | Mimo prvej verzie alebo bez zodpovedajúceho dátového modelu. |
-| Plugin manager, Generate/Analyze menu, macros, scripting | Špecifikácia neobsahuje pluginový alebo automatizačný systém. |
-| Cloud/sync, audio.com, rozsiahle Preferences | Aplikácia má pracovať lokálne; nastavenia aktuálne rieši `QSettings`. |
-| Skutočné prehrávanie, DSP/AI a export v GUI | Frontend-only hranica zadania; protokoly majú zatiaľ stuby. |
+| Viac stôp, label tracks, MIDI a spectrogram | Dátový model GUI uchováva jednu audio stopu. |
+| Nahrávanie, vstupné zariadenia a recording meter | Nahrávanie je v `SPEC.md` budúce rozšírenie; chýba capture vrstva. |
+| Strih, copy/paste, trim, silence, envelope/draw, redo a loop | Nie sú implementované v aktuálnom GUI a jeho audio adaptéri. |
+| Efekt iba na označenom úseku | Súčasné DSP operácie spracujú celý `AudioData`. |
+| Playback meter, export MP3 a výber výstupného zariadenia | Nie sú napojené na súčasný jednoduchý transport/export. |
+| Plugin manager, Generate/Analyze, macros, scripting | Špecifikácia neobsahuje pluginový ani automatizačný systém. |
+| Cloud/sync, audio.com, rozsiahle Preferences | Projekt spracúva lokálne súbory; jednoduché nastavenia ukladá `QSettings`. |
 
-Existujúce CLI s reálnym spracovaním zostáva k dispozícii oddelene. Vynechanie z GUI neznamená, že všetky tieto funkcie neexistujú v jadre.
+AI denoise vyžaduje voliteľný DeepFilterNet; declip vyžaduje voliteľný VoiceFixer a jeho model. Bez nich príslušné akcie zlyhajú so správou a nenechajú zmenené audio.

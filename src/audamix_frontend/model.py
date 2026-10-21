@@ -17,6 +17,7 @@ class TrackSnapshot:
     sample_count: int
     peaks: tuple[tuple[float, float], ...]
     revision: int = 0
+    channel_peaks: tuple[tuple[tuple[float, float], ...], ...] = ()
 
 
 class ProjectModel(Protocol):
@@ -36,8 +37,11 @@ class ProjectModel(Protocol):
 
     def set_controls(self, mute: bool, solo: bool, gain: float, pan: float) -> None: ...
 
+    def preview_path(self) -> str: ...
+
 
 class Transport(Protocol):
+    def load(self, path: str) -> None: ...
     def play(self) -> None: ...
 
     def pause(self) -> None: ...
@@ -51,6 +55,8 @@ class Transport(Protocol):
     def position(self) -> float: ...
 
     def is_playing(self) -> bool: ...
+
+    def is_paused(self) -> bool: ...
 
 
 class StubProject:
@@ -107,20 +113,31 @@ class StubProject:
     def set_controls(self, mute: bool, solo: bool, gain: float, pan: float) -> None:
         self.controls = (mute, solo, gain, pan)
 
+    def preview_path(self) -> str:
+        return ""
+
 
 class StubTransport:
     def __init__(self) -> None:
         self._position = 0.0
         self._playing = False
+        self._paused = False
+
+    def load(self, path: str) -> None:
+        del path
+        self.stop()
 
     def play(self) -> None:
         self._playing = True
+        self._paused = False
 
     def pause(self) -> None:
         self._playing = False
+        self._paused = True
 
     def stop(self) -> None:
         self._playing = False
+        self._paused = False
         self._position = 0.0
 
     def seek(self, seconds: float) -> None:
@@ -137,3 +154,6 @@ class StubTransport:
 
     def is_playing(self) -> bool:
         return self._playing
+
+    def is_paused(self) -> bool:
+        return self._paused
