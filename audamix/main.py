@@ -6,7 +6,6 @@ import sys
 
 import numpy as np
 
-from audamix.ai.audio_ai import AudioAI
 from audamix.data.audio_data import AudioData
 from audamix.dsp.signal_processor import SignalProcessor
 
@@ -27,6 +26,13 @@ def command_process(filepath: str, output: str | None = None, *, denoise: bool =
     if output and os.path.abspath(filepath) == os.path.abspath(output):
         raise ValueError("Output must differ from the input file")
     audio = AudioData.load(filepath)
+    if denoise or declip:
+        try:
+            from audamix.ai.audio_ai import AudioAI
+        except ImportError as exc:
+            raise RuntimeError(
+                "AI dependencies are missing. Install audamix/requirements-ai.txt."
+            ) from exc
     if denoise:
         audio, status = AudioAI().denoise(audio)
         print(status)

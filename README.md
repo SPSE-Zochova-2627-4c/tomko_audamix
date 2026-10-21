@@ -43,7 +43,7 @@ tests/
 
 ## Spustenie CLI so skutočným audiom
 
-Vyžaduje Python 3.11+ a závislosti v `audamix/requirements.txt`. Na Linuxe:
+Základné CLI a DSP vyžadujú Python 3.11+ a závislosti v `audamix/requirements.txt`. Na Linuxe:
 
 ```bash
 python3 -m venv .venv
@@ -51,13 +51,20 @@ python3 -m venv .venv
 python -m pip install -r audamix/requirements.txt
 python -m audamix.main info vstup.wav
 python -m audamix.main process vstup.wav --filter lowpass --cutoff 2000 --volume 0.8 --output vystup.wav
-python -m audamix.main process vstup.wav --denoise --output odsumene.wav
-python -m audamix.main process vstup.wav --declip --output obnovene.wav
 python -m audamix.main batch --input-dir ./vstup --output-dir ./vystup --volume 0.8
 python -m audamix.main generate-silence --duration 2 --output ticho.wav
 ```
 
-`--declip` vyžaduje samostatne dostupný VoiceFixer s váhami. Neexistujúci model alebo chybný vstup spôsobí chybový návratový kód. `process` odmietne rovnakú vstupnú a výstupnú cestu. Pri pokuse prekročiť amplitúdu 1.0 DSP zníži gain výsledku a vydá varovanie. Výstupný formát sa odvodzuje od prípony súboru.
+AI denoise nainštalujte samostatne podľa potreby:
+
+```bash
+python -m pip install -r audamix/requirements-ai.txt
+python -m audamix.main process vstup.wav --denoise --output odsumene.wav
+```
+
+**Windows a chyba `Cargo ... is not installed`:** `DeepFilterLib 0.5.6` má na PyPI hotový wheel pre Windows x64 a CPython 3.11, ale nie pre Python 3.14. Na Python 3.14 sa preto pip pokúša zostaviť Rust rozšírenie zo zdrojov. Pre AI denoise je najjednoduchšie vytvoriť samostatné prostredie s Python 3.11 (`py -3.11 -m venv .venv-ai`) a potom spustiť `pip install -r audamix/requirements-ai.txt`. Alternatívou je nainštalovať Rust/Cargo a potrebné build nástroje pre kompiláciu; táto cesta tu nie je overená. Základné `requirements.txt` už Rust nevyžaduje. [Zoznam wheelov DeepFilterLib 0.5.6](https://pypi.org/project/deepfilterlib/0.5.6/).
+
+`--declip` vyžaduje samostatne dostupný VoiceFixer s váhami a nie je súčasťou `requirements-ai.txt`. Neexistujúci model alebo chybný vstup spôsobí chybový návratový kód. `process` odmietne rovnakú vstupnú a výstupnú cestu. Pri pokuse prekročiť amplitúdu 1.0 DSP zníži gain výsledku a vydá varovanie. Výstupný formát sa odvodzuje od prípony súboru.
 
 ## Spustenie frontend prototypu
 

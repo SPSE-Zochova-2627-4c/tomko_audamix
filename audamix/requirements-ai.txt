@@ -1,0 +1,8 @@
+# Optional local AI denoising. Install the base requirements too.
+-r requirements.txt
+torch>=2.0.0
+torchaudio>=2.0.0
+deepfilternet==0.5.6
+
+# VoiceFixer for declipping is a separate optional installation; it is not
+# included here because its older dependency stack and weights need manual setup.

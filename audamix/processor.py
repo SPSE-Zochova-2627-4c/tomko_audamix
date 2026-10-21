@@ -17,7 +17,6 @@ from enum import Enum
 
 from audamix.data.audio_data import AudioData
 from audamix.dsp.signal_processor import SignalProcessor
-from audamix.ai.audio_ai import AudioAI
 
 
 class ProcessingStep(Enum):
@@ -308,6 +307,8 @@ class AudioProcessor:
             )
         
         try:
+            from audamix.ai.audio_ai import AudioAI
+
             ai = AudioAI()
             result_audio, message = ai.denoise(
                 self._current_audio,
@@ -359,6 +360,8 @@ class AudioProcessor:
             )
         
         try:
+            from audamix.ai.audio_ai import AudioAI
+
             ai = AudioAI()
             result_audio, message = ai.declip(
                 self._current_audio,
