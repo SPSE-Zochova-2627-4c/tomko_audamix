@@ -6,7 +6,7 @@ import sys
 
 import numpy as np
 
-from audamix.data.audio_data import AudioData
+from audamix.data.audio_data import AudioData, SUPPORTED_AUDIO_EXTENSIONS
 from audamix.dsp.signal_processor import SignalProcessor
 
 
@@ -56,7 +56,7 @@ def command_batch(input_dir: str, output_dir: str, **options) -> None:
     os.makedirs(output_dir, exist_ok=True)
     count = 0
     for filename in sorted(os.listdir(input_dir)):
-        if filename.lower().endswith((".wav", ".flac", ".mp3")):
+        if filename.lower().endswith(SUPPORTED_AUDIO_EXTENSIONS):
             command_process(os.path.join(input_dir, filename),
                             os.path.join(output_dir, filename), **options)
             count += 1

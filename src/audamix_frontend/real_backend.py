@@ -26,7 +26,7 @@ class AudioProject:
         self._revision = 0
         self._snapshot: TrackSnapshot | None = None
         self._controls = (False, False, 1.0, 0.0)
-        self._preview_dir = tempfile.TemporaryDirectory(prefix="audamix-preview-")
+        self._preview_dir: tempfile.TemporaryDirectory[str] | None = None
         self._preview_key: tuple[int, tuple[bool, bool, float, float]] | None = None
         self._preview_file = ""
 
@@ -165,6 +165,8 @@ class AudioProject:
     def preview_path(self) -> str:
         if self._audio is None:
             return ""
+        if self._preview_dir is None:
+            self._preview_dir = tempfile.TemporaryDirectory(prefix="audamix-preview-")
         key = (self._revision, self._controls)
         if key != self._preview_key:
             number = len(list(Path(self._preview_dir.name).iterdir()))
@@ -180,6 +182,10 @@ class AudioProject:
         self._history.clear()
         self._snapshot = None
         self._preview_key = None
+        self._preview_file = ""
+        if self._preview_dir is not None:
+            self._preview_dir.cleanup()
+            self._preview_dir = None
 
 
 class AudioTransport(QObject):

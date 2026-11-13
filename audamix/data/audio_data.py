@@ -11,12 +11,38 @@ Design Rationale:
     - Preserve the source level unless normalization is requested
 """
 
-import numpy as np
-from soundfile import SoundFile, read as sf_read, write as sf_write
-from typing import Dict, Tuple, Optional, Union
 import os
+import tempfile
+from pathlib import Path
+from typing import Dict, Optional, Union
+
+import numpy as np
+from soundfile import SoundFile
 
 AudioMetadata = Dict[str, Union[str, int, float]]
+
+# Formats exposed by the file dialogs and accepted by libsndfile in the
+# supported runtime. MP3 is included because current libsndfile builds expose
+# MPEG Layer III; loading/saving still reports a useful error if a platform
+# build lacks that codec.
+SUPPORTED_AUDIO_EXTENSIONS = (
+    ".wav", ".wave", ".flac", ".ogg", ".oga", ".opus", ".aiff", ".aif",
+    ".au", ".snd", ".caf", ".mp3",
+)
+
+OUTPUT_FORMATS = {
+    ".wav": ("WAV", None), ".wave": ("WAV", None),
+    ".flac": ("FLAC", None), ".ogg": ("OGG", None),
+    ".oga": ("OGG", None), ".opus": ("OGG", "OPUS"),
+    ".aiff": ("AIFF", None), ".aif": ("AIFF", None),
+    ".au": ("AU", None), ".snd": ("AU", None),
+    ".caf": ("CAF", None), ".mp3": ("MP3", "MPEG_LAYER_III"),
+}
+
+
+def is_supported_audio_path(filepath: str) -> bool:
+    """Return whether *filepath* has a supported audio extension."""
+    return os.path.splitext(filepath)[1].lower() in SUPPORTED_AUDIO_EXTENSIONS
 
 
 class AudioData:
@@ -58,10 +84,16 @@ class AudioData:
             The default preserves source amplitude for predictable gain changes.
         """
         audio = cls()
+        if not is_supported_audio_path(filepath):
+            raise ValueError(
+                "Unsupported audio extension. Supported formats: "
+                + ", ".join(SUPPORTED_AUDIO_EXTENSIONS)
+            )
         
-        # Load audio with soundfile
+        # Read samples and metadata through the same open file handle.
         with SoundFile(filepath) as sf:
-            audio.samples, sample_rate = sf_read(filepath)
+            audio.samples = sf.read()
+            sample_rate = sf.samplerate
             
             # Preserve metadata
             audio.metadata['filename'] = os.path.basename(filepath)
@@ -107,18 +139,47 @@ class AudioData:
         """
         if self.samples is None:
             raise ValueError("No audio data to save")
+        if not format and not is_supported_audio_path(filepath):
+            raise ValueError(
+                "Unsupported output extension. Choose WAV, FLAC, OGG/Opus, "
+                "AIFF, AU, CAF or MP3."
+            )
         
         # Use original sample rate and channels
         sr = self.metadata.get('sample_rate', 44100)
         channels = self.metadata.get('channels', 1)
         
-        # Create SoundFile for writing
-        with SoundFile(filepath, 'w', samplerate=sr, channels=channels,
-                      format=format) as sf:
-            sf.write(self.samples)
-        
-        # Update filename metadata
-        self.metadata['filename'] = os.path.basename(filepath)
+        suffix = os.path.splitext(filepath)[1].lower()
+        mapped_format, mapped_subtype = OUTPUT_FORMATS.get(suffix, (None, None))
+        output_format = format or mapped_format
+        output_subtype = None if format else mapped_subtype
+        # Write beside the destination, then replace it only after encoding
+        # completes. Keeping the suffix preserves format inference for codecs.
+        destination = Path(filepath)
+        temporary_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=destination.parent,
+                suffix=destination.suffix,
+                prefix=f".{destination.stem}.",
+                delete=False,
+            ) as temporary_file:
+                temporary_path = temporary_file.name
+            with SoundFile(
+                temporary_path,
+                "w",
+                samplerate=sr,
+                channels=channels,
+                format=output_format,
+                subtype=output_subtype,
+            ) as sound_file:
+                sound_file.write(self.samples)
+            os.replace(temporary_path, destination)
+        finally:
+            if temporary_path is not None and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
+
+        self.metadata["filename"] = destination.name
     
     def get_sample_count(self) -> int:
         """Return number of samples."""

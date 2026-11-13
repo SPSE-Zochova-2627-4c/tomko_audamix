@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import cast
 
 from PySide6.QtCore import QSettings, Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .model import ProjectModel, Transport
+from .model import SUPPORTED_AUDIO_EXTENSIONS, SUPPORTED_AUDIO_FILTER, ProjectModel, Transport
 from .real_backend import AudioProject, AudioTransport
 from .theme import apply_theme
 from .widgets import SelectionBar, TimelineRuler, ViewState, WaveformView
@@ -51,6 +51,7 @@ class MainWindow(QMainWindow):
     def __init__(self, project: ProjectModel | None = None, transport: Transport | None = None,
                  settings: QSettings | None = None) -> None:
         super().__init__()
+        self.setAcceptDrops(True)
         self.project: ProjectModel = project if project is not None else AudioProject()
         self.transport: Transport = transport if transport is not None else AudioTransport(self)
         self.settings = settings if settings is not None else QSettings("Audamix", "Frontend")
@@ -118,7 +119,7 @@ class MainWindow(QMainWindow):
         self._action("fit_project", "Fit Project", "Ctrl+F").triggered.connect(self._fit_project)
         self._action("light_theme", "Light Theme", checkable=True).triggered.connect(self._toggle_theme)
         self.commands["light_theme"].setChecked(self.theme == "light")
-        self._action("play_stop", "Play / Stop", "Space").triggered.connect(self._play_stop)
+        self._action("play", "Play", "Space").triggered.connect(self._play)
         self._action("pause", "Pause", "P").triggered.connect(self._pause)
         self._action("stop", "Stop").triggered.connect(self._stop)
         self._action("skip_start", "Skip to Start", "Home").triggered.connect(self._skip_start)
@@ -147,7 +148,7 @@ class MainWindow(QMainWindow):
             ("Edit", ("undo",)),
             ("Select", ("select_all", "clear_selection", "selection_tool", "zoom_tool")),
             ("View", ("zoom_in", "zoom_out", "fit_selection", "fit_project", "light_theme")),
-            ("Transport", ("play_stop", "pause", "stop", "skip_start", "skip_end")),
+            ("Transport", ("play", "pause", "stop", "skip_start", "skip_end")),
             ("Tracks", ("mute", "solo", "collapse", "close_track")),
             ("Effects", ("gain", "lowpass", "highpass", "bandpass", "classical_denoise",
                          "ai_denoise", "ai_declip")),
@@ -159,7 +160,7 @@ class MainWindow(QMainWindow):
                 menu.addAction(self.commands[name])
 
     def _create_toolbars(self) -> None:
-        for title, names in (("Transport", ("pause", "play_stop", "stop", "skip_start", "skip_end")),
+        for title, names in (("Transport", ("pause", "play", "stop", "skip_start", "skip_end")),
                              ("Tools", ("selection_tool", "zoom_tool")),
                              ("Edit", ("undo", "zoom_in", "zoom_out", "fit_selection", "fit_project"))):
             bar = QToolBar(title, self)
@@ -269,7 +270,7 @@ class MainWindow(QMainWindow):
         self.rate_label.setText(f"{track.sample_rate:,} Hz · {track.channels} ch" if track else "No project")
         self.collapse_button.setEnabled(loaded)
         self.close_button.setEnabled(loaded)
-        for name in ("export", "select_all", "clear_selection", "play_stop", "pause", "stop",
+        for name in ("export", "select_all", "clear_selection", "play", "pause", "stop",
                      "skip_start", "skip_end", "mute", "solo", "collapse", "close_track",
                      "gain", "lowpass", "highpass", "bandpass", "classical_denoise",
                      "ai_denoise", "ai_declip", "zoom_in", "zoom_out", "fit_project"):
@@ -279,7 +280,7 @@ class MainWindow(QMainWindow):
         self.commands["fit_selection"].setEnabled(loaded and self.selection[1] > self.selection[0])
         self.commands["undo"].setEnabled(self.project.can_undo())
         if self._effect_thread is not None:
-            for name in ("open", "export", "undo", "play_stop", "pause", "stop", "close_track",
+            for name in ("open", "export", "undo", "play", "pause", "stop", "close_track",
                          "mute", "solo",
                          "gain", "lowpass", "highpass", "bandpass", "classical_denoise",
                          "ai_denoise", "ai_declip"):
@@ -288,9 +289,30 @@ class MainWindow(QMainWindow):
     @Slot(bool)
     def _open(self, checked: bool = False) -> None:
         del checked
-        path, _ = QFileDialog.getOpenFileName(self, "Open audio", "", "Audio (*.wav *.flac *.ogg *.aiff)")
+        path, _ = QFileDialog.getOpenFileName(self, "Open audio", "", SUPPORTED_AUDIO_FILTER)
         if path:
             self.open_path(path)
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802
+        if any(url.isLocalFile() and Path(url.toLocalFile()).suffix.lower()
+               in SUPPORTED_AUDIO_EXTENSIONS for url in event.mimeData().urls()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
+        paths = [url.toLocalFile() for url in event.mimeData().urls()
+                 if url.isLocalFile() and Path(url.toLocalFile()).suffix.lower()
+                 in SUPPORTED_AUDIO_EXTENSIONS]
+        if not paths:
+            event.ignore()
+            return
+        self.open_path(paths[0])
+        if len(paths) > 1:
+            self.statusBar().showMessage(
+                f"Opened {Path(paths[0]).name}; ignored {len(paths) - 1} additional files"
+            )
+        event.acceptProposedAction()
 
     def open_path(self, path: str) -> None:
         if self._effect_thread is not None:
@@ -318,7 +340,11 @@ class MainWindow(QMainWindow):
     @Slot(bool)
     def _export(self, checked: bool = False) -> None:
         del checked
-        path, _ = QFileDialog.getSaveFileName(self, "Export audio", "", "WAV (*.wav)")
+        filters = (
+            "WAV (*.wav);;FLAC (*.flac);;OGG/Opus (*.ogg *.oga *.opus);;"
+            "AIFF (*.aiff *.aif);;AU (*.au *.snd);;CAF (*.caf);;MP3 (*.mp3)"
+        )
+        path, _ = QFileDialog.getSaveFileName(self, "Export audio", "", filters)
         if path:
             if not Path(path).suffix:
                 path += ".wav"
@@ -357,7 +383,24 @@ class MainWindow(QMainWindow):
     @Slot(float)
     def _seek(self, at: float) -> None:
         self.transport.seek(at)
+        self._follow_playhead(self.transport.position())
         self.waveform.set_playhead(self.transport.position())
+
+    def _follow_playhead(self, position: float) -> None:
+        """Keep the moving playhead visible while the timeline is zoomed in."""
+        width = self.waveform.width()
+        if width <= 0 or self.view.seconds_per_pixel <= 0:
+            return
+        viewport_seconds = width * self.view.seconds_per_pixel
+        left = self.view.offset
+        right = left + viewport_seconds
+        # Keep a 15% margin so the view does not jump on every pixel.
+        margin = viewport_seconds * 0.15
+        if left + margin <= position <= right - margin:
+            return
+        max_offset = max(0.0, self.view.duration - viewport_seconds)
+        self.view.offset = max(0.0, min(max_offset, position - viewport_seconds * 0.5))
+        self._sync_view()
 
     @Slot()
     def _sync_view(self) -> None:
@@ -422,21 +465,28 @@ class MainWindow(QMainWindow):
         self.settings.setValue("theme", self.theme)
 
     @Slot(bool)
-    def _play_stop(self, checked: bool = False) -> None:
+    def _play(self, checked: bool = False) -> None:
         del checked
         if self.transport.is_playing():
-            self.transport.stop()
-            self.statusBar().showMessage("Stopped")
-        else:
-            try:
-                position = self.transport.position()
-                self.transport.load(self.project.preview_path())
-                self.transport.seek(position)
-            except (OSError, RuntimeError, ValueError) as exc:
-                QMessageBox.warning(self, "Playback failed", str(exc))
-                return
-            self.transport.play()
-            self.statusBar().showMessage("Playback requested")
+            self.statusBar().showMessage("Already playing")
+            return
+        try:
+            selection_start, selection_end = self.selection
+            has_selection = selection_end > selection_start
+            # A paused transport resumes at its current position. A fresh
+            # Play starts at the selection beginning, if one is active.
+            position = (self.transport.position() if self.transport.is_paused()
+                        else selection_start if has_selection else self.transport.position())
+            self.transport.load(self.project.preview_path())
+            self.transport.seek(position)
+        except (OSError, RuntimeError, ValueError) as exc:
+            QMessageBox.warning(self, "Playback failed", str(exc))
+            return
+        self.transport.play()
+        self.statusBar().showMessage(
+            "Playing selection" if has_selection else "Playback requested"
+        )
+        self._follow_playhead(self.transport.position())
         self.waveform.set_playhead(self.transport.position())
 
     @Slot(bool)
@@ -468,8 +518,17 @@ class MainWindow(QMainWindow):
     @Slot()
     def _tick(self) -> None:
         self.transport.tick(0.05, self.view.duration)
-        if self.transport.is_playing():
-            self.waveform.set_playhead(self.transport.position())
+        position = self.transport.position()
+        selection_start, selection_end = self.selection
+        if self.transport.is_playing() and selection_end > selection_start and position >= selection_end:
+            self.transport.stop()
+            self.transport.seek(selection_end)
+            self._follow_playhead(selection_end)
+            self.waveform.set_playhead(selection_end)
+            self.statusBar().showMessage("Selection playback finished")
+        elif self.transport.is_playing():
+            self._follow_playhead(position)
+            self.waveform.set_playhead(position)
 
     @Slot()
     @Slot(bool)

@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import soundfile as sf
 
-from audamix.data.audio_data import AudioData
+from audamix.data.audio_data import AudioData, SUPPORTED_AUDIO_EXTENSIONS
 from audamix.dsp.signal_processor import SignalProcessor
 from audamix.main import command_process
 from audamix.processor import create_processor
@@ -23,6 +23,20 @@ def make_audio(samples, sample_rate=8000):
 
 
 class AudioWorkflowTests(unittest.TestCase):
+    def test_supported_formats_round_trip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            samples = np.sin(np.arange(8000) * 2 * np.pi * 440 / 8000).astype(np.float32)
+            for extension in (".wav", ".wave", ".flac", ".ogg", ".oga", ".opus",
+                              ".aiff", ".aif", ".au", ".snd", ".caf", ".mp3"):
+                path = Path(directory) / f"roundtrip{extension}"
+                audio = make_audio(samples, 8000)
+                audio.save(str(path))
+                loaded = AudioData.load(str(path))
+                self.assertEqual(loaded.metadata["sample_rate"], 8000)
+                self.assertEqual(loaded.metadata["channels"], 1)
+                self.assertEqual(loaded.samples.shape, samples.shape)
+            self.assertIn(".mp3", SUPPORTED_AUDIO_EXTENSIONS)
+
     def test_volume_changes_samples_without_changing_source_and_undo_restores(self):
         source = make_audio(np.full(128, 0.25))
         processor = create_processor(source)

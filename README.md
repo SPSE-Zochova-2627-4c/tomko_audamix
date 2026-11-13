@@ -26,13 +26,22 @@ Na macOS použite linuxové príkazy; Python môžete spustiť ako `python3`. Pr
 
 ## Použitie
 
-1. **File → Open** otvorí WAV, FLAC, OGG alebo AIFF; priebeh a metadáta pochádzajú zo skutočného súboru.
-2. Kliknutím do priebehu umiestnite kurzor, ťahaním označíte úsek. Ctrl + koliesko alebo tlačidlá Zoom menia mierku, koliesko posúva čas.
-3. **Transport → Play / Stop** prehráva audio cez systémový výstup. Stopa má Mute, Solo, Gain a Pan. Pri jednej stope Solo nemení výsledný zvuk.
+1. **File → Open** otvorí WAV, FLAC, OGG/Opus, AIFF, AU, CAF alebo MP3;
+   priebeh a metadáta pochádzajú zo skutočného súboru. Súbor možno do okna
+   aj pretiahnuť (drag-and-drop); pri viacerých súboroch sa otvorí prvý
+   podporovaný.
+2. Kliknutím do priebehu umiestnite kurzor, ťahaním označíte úsek. Ak je úsek
+   označený, **Play** prehrá iba tento výber a po jeho konci sa
+   automaticky zastaví; bez výberu prehrávanie pokračuje cez celú stopu. Ctrl
+   + koliesko alebo tlačidlá Zoom menia mierku, koliesko posúva čas.
+3. **Transport → Play** spustí audio a **Stop** ho zastaví cez systémový výstup. Stopa má Mute, Solo, Gain a Pan. Pri jednej stope Solo nemení výsledný zvuk.
 4. **Effects** ponúka gain, low-pass, high-pass, band-pass, základné odšumenie a voliteľné AI operácie. Efekty momentálne spracujú celú stopu aj keď je označený úsek; **Edit → Undo** vracia poslednú úpravu.
 5. **File → Export** uloží výsledok do nového audio súboru. Export zohľadní Mute, Gain a Pan. Pôvodný vstupný súbor sa nedá prepísať cez Export.
 
-Podporované formáty čítania a zápisu závisia od nainštalovaného libsndfile. Dialóg exportu predvolene ponúka WAV. Náhľadové WAV súbory vznikajú v dočasnom adresári.
+Podporované formáty čítania a zápisu sú WAV, FLAC, OGG/Opus, AIFF, AU, CAF a
+MP3; konkrétne kodeky závisia od nainštalovaného `libsndfile`. Dialóg exportu
+ponúka voľbu formátu podľa prípony. Náhľadové WAV súbory vznikajú v dočasnom
+adresári.
 
 ## Projekt
 

@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from audamix.data.audio_data import SUPPORTED_AUDIO_EXTENSIONS
+
+
+SUPPORTED_AUDIO_FILTER = "Audio (" + " ".join(f"*{suffix}" for suffix in SUPPORTED_AUDIO_EXTENSIONS) + ")"
+
 
 @dataclass(frozen=True)
 class TrackSnapshot:
@@ -69,8 +74,8 @@ class StubProject:
         return self._track
 
     def open_file(self, path: str) -> tuple[bool, str]:
-        if Path(path).suffix.lower() not in {".wav", ".flac", ".ogg", ".aiff"}:
-            return False, "Demo backend accepts WAV, FLAC, OGG and AIFF names only."
+        if Path(path).suffix.lower() not in SUPPORTED_AUDIO_EXTENSIONS:
+            return False, "Demo backend accepts the supported Audamix audio extensions only."
         if not Path(path).is_file():
             return False, "The selected file does not exist."
         # This is deliberately generated data, not a decoded version of the file.

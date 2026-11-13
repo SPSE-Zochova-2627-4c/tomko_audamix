@@ -9,7 +9,7 @@ import soundfile as sf
 from PySide6.QtCore import QSettings
 from pytestqt.qtbot import QtBot
 
-from audamix_frontend.model import StubProject, StubTransport
+from audamix_frontend.model import SUPPORTED_AUDIO_FILTER, StubProject, StubTransport
 from audamix_frontend.real_backend import AudioProject
 from audamix_frontend.widgets import ViewState
 from audamix_frontend.window import MainWindow
@@ -40,6 +40,14 @@ def test_window_and_action_state(qtbot: QtBot, tmp_path: Path) -> None:
     assert window.commands["undo"].isEnabled()
     window.commands["undo"].trigger()
     assert not window.commands["undo"].isEnabled()
+
+
+def test_window_accepts_audio_drop_and_exposes_all_formats(qtbot: QtBot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert window.acceptDrops()
+    for extension in (".wav", ".flac", ".ogg", ".opus", ".aiff", ".au", ".caf", ".mp3"):
+        assert f"*{extension}" in SUPPORTED_AUDIO_FILTER
 
 
 def test_selection_and_zoom_math(qtbot: QtBot, tmp_path: Path) -> None:
@@ -115,9 +123,51 @@ def test_pause_resumes_transport(qtbot: QtBot, tmp_path: Path) -> None:
     path = tmp_path / "sample.wav"
     path.write_bytes(b"stub")
     window.open_path(str(path))
-    window.commands["play_stop"].trigger()
+    window.commands["play"].trigger()
     assert transport.is_playing()
     window.commands["pause"].trigger()
     assert transport.is_paused()
     window.commands["pause"].trigger()
     assert transport.is_playing()
+
+
+def test_playback_starts_and_stops_at_selection(qtbot: QtBot, tmp_path: Path) -> None:
+    transport = StubTransport()
+    window = MainWindow(
+        project=StubProject(), transport=transport,
+        settings=QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat),
+    )
+    qtbot.addWidget(window)
+    path = tmp_path / "sample.wav"
+    path.write_bytes(b"stub")
+    window.open_path(str(path))
+    window._set_selection(10.0, 10.2)
+
+    window.commands["play"].trigger()
+    assert transport.is_playing()
+    assert transport.position() == 10.0
+
+    for _ in range(5):
+        window._tick()
+    assert not transport.is_playing()
+    assert transport.position() == 10.2
+
+
+def test_playhead_auto_scrolls_when_zoomed_in(qtbot: QtBot, tmp_path: Path) -> None:
+    transport = StubTransport()
+    window = MainWindow(
+        project=StubProject(), transport=transport,
+        settings=QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat),
+    )
+    qtbot.addWidget(window)
+    path = tmp_path / "sample.wav"
+    path.write_bytes(b"stub")
+    window.open_path(str(path))
+    window.view.seconds_per_pixel = 0.01
+    window.view.offset = 0.0
+    window._sync_view()
+    window._follow_playhead(50.0)
+
+    viewport_seconds = window.waveform.width() * window.view.seconds_per_pixel
+    assert window.view.offset > 0.0
+    assert window.view.offset <= 50.0 <= window.view.offset + viewport_seconds

@@ -134,6 +134,18 @@ class WaveformView(QWidget):
         painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
         if self.track is not None:
             ruler_width = 34
+            track_end_x = ruler_width + round(
+                (self.track.duration - self.view.offset) / self.view.seconds_per_pixel
+            )
+            visible_end_x = min(self.width(), max(ruler_width, track_end_x))
+            # Do not render the final peak repeatedly across the empty area
+            # after the actual audio. This area is deliberately distinct so
+            # the end of the track remains obvious while zoomed out.
+            if visible_end_x < self.width():
+                empty_area = color(self.theme, "panel")
+                empty_area.setAlpha(95)
+                painter.fillRect(visible_end_x, 0, self.width() - visible_end_x,
+                                 self.height(), empty_area)
             channel_height = self.height() / self.track.channels
             painter.setPen(QPen(color(self.theme, "center")))
             for channel in range(self.track.channels):
@@ -150,7 +162,7 @@ class WaveformView(QWidget):
                 peaks_for_channel = (self.track.channel_peaks[channel]
                                      if self.track.channel_peaks else self.track.peaks)
                 count = len(peaks_for_channel)
-                for x in range(ruler_width, self.width()):
+                for x in range(ruler_width, visible_end_x):
                     at = self.view.time_at(x - ruler_width)
                     index = min(count - 1, int(at / self.track.duration * count))
                     peak, rms = peaks_for_channel[index]
@@ -158,6 +170,13 @@ class WaveformView(QWidget):
                     painter.drawLine(x, round(center_y - peak * scale), x, round(center_y + peak * scale))
                     painter.setPen(QPen(color(self.theme, "rms")))
                     painter.drawLine(x, round(center_y - rms * scale), x, round(center_y + rms * scale))
+            if ruler_width <= track_end_x < self.width():
+                end_pen = QPen(color(self.theme, "track_end"), 2)
+                end_pen.setStyle(Qt.PenStyle.DashLine)
+                painter.setPen(end_pen)
+                painter.drawLine(track_end_x, 0, track_end_x, self.height())
+                painter.setPen(color(self.theme, "track_end"))
+                painter.drawText(track_end_x + 5, 16, "END")
         painter.end()
         self.update()
 
