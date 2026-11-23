@@ -35,7 +35,7 @@ Na macOS použite linuxové príkazy; Python môžete spustiť ako `python3`. Pr
    automaticky zastaví; bez výberu prehrávanie pokračuje cez celú stopu. Ctrl
    + koliesko alebo tlačidlá Zoom menia mierku, koliesko posúva čas.
 3. **Transport → Play** spustí audio a **Stop** ho zastaví cez systémový výstup. Stopa má Mute, Solo, Gain a Pan. Pri jednej stope Solo nemení výsledný zvuk.
-4. **Effects** ponúka gain, low-pass, high-pass, band-pass, základné odšumenie a voliteľné AI operácie. Efekty momentálne spracujú celú stopu aj keď je označený úsek; **Edit → Undo** vracia poslednú úpravu.
+4. **Effects** ponúka gain, low-pass, high-pass, band-pass, základné odšumenie a voliteľné AI operácie. Efekty sa aplikujú na označený úsek, alebo na celú stopu, ak nie je nič označené. **Edit** ponúka Undo/Redo (Ctrl+Z / Ctrl+Y), Cut, Copy, Paste, Delete, Trim to Selection, Silence, Fade In/Out, správu labelov a Preferences. **Effects** obsahuje okrem základných efektov aj podmenu s efektmi ako v Audacity: Normalize, Compressor, Limiter, Noise Gate, Bass and Treble, Parametric EQ, Notch Filter, Echo, Phaser, Wahwah, Tremolo, Distortion, Invert a Reverse. Všetky zachovávajú dĺžku zvuku, a preto fungujú aj na výbere; parametre sa zadávajú v dialógu. **Generate** vloží tón, ticho alebo šum na kurzor (v prázdnom projekte vytvorí novú stopu). **Analyze → Statistics** zobrazí peak, RMS, DC offset, počet orezaných vzoriek a dominantnú frekvenciu. **View → Show Spectrogram** prepne priebeh na spektrogram. **Transport → Loop Playback** opakuje výber alebo celú stopu a **Output Device** vyberá výstupné zariadenie.
 5. **File → Export** uloží výsledok do nového audio súboru. Export zohľadní Mute, Gain a Pan. Pôvodný vstupný súbor sa nedá prepísať cez Export.
 
 Podporované formáty čítania a zápisu sú WAV, FLAC, OGG/Opus, AIFF, AU, CAF a
@@ -47,7 +47,7 @@ adresári.
 
 - `audamix.py` — priamy štart desktopovej aplikácie.
 - `src/audamix_frontend/` — Qt okno, widgety, téma, protokoly a reálne adaptéry na audio jadro.
-- `audamix/data/`, `audamix/dsp/`, `audamix/ai/` — načítanie, klasické DSP a voliteľné AI.
+- `audamix/data/`, `audamix/dsp/`, `audamix/ai/` — načítanie, klasické DSP (`signal_processor.py`, strihové operácie v `editing.py`) a voliteľné AI.
 - `audamix/main.py` — samostatné príkazové rozhranie, napr. `python -m audamix.main info vstup.wav`.
 - `tests/` — testy GUI a audio toku.
 
@@ -57,10 +57,10 @@ Rozhodnutia a hranice implementácie sú v [ASSUMPTIONS.md](ASSUMPTIONS.md), [OM
 
 ```bash
 python -m pip install pytest pytest-qt ruff mypy
-QT_QPA_PLATFORM=offscreen python -m pytest tests/test_frontend.py -q
+QT_QPA_PLATFORM=offscreen python -m pytest tests/test_frontend.py tests/test_editing.py -q
 python -m unittest discover -s tests -p test_audio_workflow.py -v
 QT_QPA_PLATFORM=offscreen python tests/manual_frontend_smoke.py
-ruff check src tests/test_frontend.py
+ruff check src tests/test_frontend.py tests/test_editing.py
 mypy --strict src/audamix_frontend
 ```
 

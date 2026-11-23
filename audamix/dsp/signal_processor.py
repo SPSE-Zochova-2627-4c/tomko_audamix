@@ -32,6 +32,10 @@ class SignalProcessor:
         result.original_samples = self.audio.original_samples
         return result
 
+    def from_samples(self, samples: np.ndarray) -> AudioData:
+        """Wrap externally processed samples, applying the same validity and clipping checks."""
+        return self._result(np.asarray(samples, dtype=np.float64))
+
     def adjust_volume(self, factor: float) -> AudioData:
         if not np.isfinite(factor) or factor <= 0:
             raise ValueError("Volume factor must be finite and positive")

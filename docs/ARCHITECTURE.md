@@ -39,6 +39,18 @@ QAction / myš / klávesnica → ProjectModel / Transport (protokoly)
 
 `theme.py` drží farby tmavej aj svetlej témy, nastavuje `QPalette` a dopĺňa hodnoty do `resources/dark.qss`. Súbor QSS slúži ako spoločná šablóna aj pre svetlú tému; názov súboru je historický. Používané farby widgetov pochádzajú z `theme.py`.
 
+## Efekty ako v Audacity
+
+`audamix/dsp/effects.py` obsahuje čisté funkcie `f(samples, rate, **parametre)` a tabuľku `SPECS` (názov, skupina v menu, parametre s rozsahom a predvolenou hodnotou). Menu Effects a dialóg `EffectDialog` sa generujú z tejto tabuľky, takže nový efekt stačí pridať na jedno miesto. `apply_effect` overí rozsahy parametrov, a `AudioProject.apply_effect` výsledok prevedie cez `SignalProcessor.from_samples` (kontrola konečných hodnôt a zníženie úrovne pri preorezaní). Kompresor a limiter používajú obálku s krátkym predstihom (kĺzavé minimum) a vyhladenie zisku, noise gate drží otvorenie po dobu release. Phaser a Wahwah prechádzajú bankou pevných filtrov a plynulo prelievajú ich výstupy podľa LFO, čím sa vyhnú klikaniu pri zmene koeficientov. Echo skracuje dozvuk na pôvodnú dĺžku zvuku.
+
+## Úpravy, labely a analýza
+
+`audamix/dsp/editing.py` obsahuje čisté NumPy funkcie (mazanie, vkladanie, ticho, fade, prevod schránky na rate/kanály, generátory, štatistiky, spektrogram). `AudioProject.edit` ich volá, drží schránku a udržiava labely: pri mazaní a vkladaní sa časy labelov posúvajú. História undo aj redo ukladá dvojice (audio, labely). Švy po mazaní, vkladaní a zhodení na ticho sa vyhladzujú 3 ms prechodom cez nulu (`smooth_join`), inak by skok vo vlne bol počuteľný ako kliknutie. `apply_effect` pri zadanom `start`/`end` spracuje iba výrez a vráti ho späť; ak efekt zmení dĺžku výrezu, nič sa neaplikuje. `level_at` počíta peak pre `LevelMeter`, `spectrogram` vracia obrázok `uint8` cachovaný podľa revízie. `AudioTransport.set_output_device` prepína `QAudioOutput` podľa ID zariadenia z `QMediaDevices`.
+
+## Výber a ihla (správanie ako v Audacity)
+
+Klik umiestni kurzor a zruší výber, ťahanie vyberá v oboch smeroch, okraje výberu možno chytiť a posúvať, Shift+klik rozšíri výber od vzdialenejšieho okraja, dvojklik vyberie celú stopu a ťahanie za okraj widgetu posúva zobrazenie. Ako v Audacity existujú dve nezávislé „ihly“: **editačný kurzor** (tenká čiara na mieste kliknutia, resp. okraje výberu; zostáva na mieste, odkiaľ sa začína prehrávať a kde sa vykonávajú úpravy) a **zelený playhead**, ktorý existuje len počas prehrávania alebo pauzy a pohybuje sa sám. Klik do priebehu počas prehrávania posunie iba kurzor; klik alebo ťahanie po pravítku posunie kurzor a pri prehrávaní aj playhead (v pravítku je trojuholníková značka playheadu a pás výberu). Space prepína Play/Stop; Play začína na kurzore (alebo na začiatku výberu) a Stop playhead skryje bez zmeny kurzora. Šípky posúvajú kurzor, Shift+šípky rozširujú, Ctrl+Shift+šípky zužujú výber, Shift+Home/End vyberie po začiatok/koniec, Home/End presunie kurzor (počas prehrávania aj playhead), Shift+Space spustí jednorazové opakované prehrávanie.
+
 ## Ovládanie a klávesy
 
 | Akcia | Skratka |
@@ -51,10 +63,10 @@ QAction / myš / klávesnica → ProjectModel / Transport (protokoly)
 | Play/stop / pause | Space / P |
 | Začiatok / koniec | Home / End |
 
-V GUI nie sú nahrávanie, strih ani kopírovanie, preto ich skratky neexistujú. Akcie sa vypnú, keď bez načítanej stopy alebo výberu nedávajú zmysel. Mute, Gain a Pan ovplyvňujú náhľad aj export; Solo pri jednej stope nemá efekt.
+Ďalšie skratky: Redo Ctrl+Y, Cut/Copy/Paste Ctrl+X/C/V, Delete, Trim Ctrl+T, Silence Ctrl+L, Add Label Ctrl+B, Statistics Ctrl+I, Spectrogram Ctrl+Shift+S, Loop Shift+L, Preferences Ctrl+,. V GUI nie je nahrávanie. Akcie sa vypnú, keď bez načítanej stopy alebo výberu nedávajú zmysel. Mute, Gain a Pan ovplyvňujú náhľad aj export; Solo pri jednej stope nemá efekt.
 
 ## Testy a známe hranice
 
 `tests/test_audio_workflow.py` overuje jadro a CLI. `tests/test_frontend.py` testuje GUI, zoom, QSettings, reálny gain, undo a export. `tests/manual_frontend_smoke.py` spúšťa offscreen GUI s platným WAV. Aktuálne príkazy a výsledky sú v `VERIFICATION.md`.
 
-Skutočné prehrávanie cez systémové zariadenie a AI modely nie sú v headless prostredí overené. GUI stále spracúva iba jednu stopu a efekty sa aplikujú na celú stopu.
+Skutočné prehrávanie cez systémové zariadenie a AI modely nie sú v headless prostredí overené. GUI stále spracúva iba jednu stopu.

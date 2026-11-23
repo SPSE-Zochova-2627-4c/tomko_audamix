@@ -7,10 +7,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+import numpy as np
+from numpy.typing import NDArray
+
 from audamix.data.audio_data import SUPPORTED_AUDIO_EXTENSIONS
 
-
 SUPPORTED_AUDIO_FILTER = "Audio (" + " ".join(f"*{suffix}" for suffix in SUPPORTED_AUDIO_EXTENSIONS) + ")"
+
+
+@dataclass(frozen=True)
+class Label:
+    start: float
+    end: float
+    text: str
 
 
 @dataclass(frozen=True)
@@ -23,6 +32,7 @@ class TrackSnapshot:
     peaks: tuple[tuple[float, float], ...]
     revision: int = 0
     channel_peaks: tuple[tuple[tuple[float, float], ...], ...] = ()
+    labels: tuple[Label, ...] = ()
 
 
 class ProjectModel(Protocol):
@@ -35,6 +45,24 @@ class ProjectModel(Protocol):
     def undo(self) -> bool: ...
 
     def can_undo(self) -> bool: ...
+
+    def redo(self) -> bool: ...
+
+    def can_redo(self) -> bool: ...
+
+    def can_paste(self) -> bool: ...
+
+    def edit(self, name: str, parameters: dict[str, float]) -> tuple[bool, str]: ...
+
+    def add_label(self, start: float, end: float, text: str) -> None: ...
+
+    def remove_labels(self, start: float, end: float) -> int: ...
+
+    def analyze(self, start: float, end: float) -> tuple[bool, dict[str, float] | str]: ...
+
+    def spectrogram(self) -> NDArray[np.uint8] | None: ...
+
+    def level_at(self, seconds: float) -> tuple[float, ...]: ...
 
     def export_file(self, path: str) -> tuple[bool, str]: ...
 
@@ -62,6 +90,8 @@ class Transport(Protocol):
     def is_playing(self) -> bool: ...
 
     def is_paused(self) -> bool: ...
+
+    def set_output_device(self, device_id: str) -> None: ...
 
 
 class StubProject:
@@ -106,6 +136,37 @@ class StubProject:
 
     def can_undo(self) -> bool:
         return bool(self._history)
+
+    def redo(self) -> bool:
+        return False
+
+    def can_redo(self) -> bool:
+        return False
+
+    def can_paste(self) -> bool:
+        return False
+
+    def edit(self, name: str, parameters: dict[str, float]) -> tuple[bool, str]:
+        del parameters
+        return False, f"Demo backend cannot perform {name}."
+
+    def add_label(self, start: float, end: float, text: str) -> None:
+        del start, end, text
+
+    def remove_labels(self, start: float, end: float) -> int:
+        del start, end
+        return 0
+
+    def analyze(self, start: float, end: float) -> tuple[bool, dict[str, float] | str]:
+        del start, end
+        return False, "Demo backend has no audio to analyze."
+
+    def spectrogram(self) -> NDArray[np.uint8] | None:
+        return None
+
+    def level_at(self, seconds: float) -> tuple[float, ...]:
+        del seconds
+        return ()
 
     def export_file(self, path: str) -> tuple[bool, str]:
         del path
@@ -162,3 +223,6 @@ class StubTransport:
 
     def is_paused(self) -> bool:
         return self._paused
+
+    def set_output_device(self, device_id: str) -> None:
+        del device_id
